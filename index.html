@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Evercrafted Placement Engine — Composition Canvas</title>
+    <meta name="description" content="Sprint 1 composition canvas for the Evercrafted Placement Engine: anchor, sweep, echo, and explainability over a 24-inch wreath blueprint." />
+    <link rel="stylesheet" href="./styles/app.css" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='11' fill='none' stroke='%237D9B69' stroke-width='4'/><path d='M5 21a11 11 0 0 0 8 6' fill='none' stroke='%23D08A4A' stroke-width='5' stroke-linecap='round'/></svg>" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="toolbar" id="toolbar-mount"></header>
+
+      <aside class="panel panel-left">
+        <h2 class="panel-heading">Layers &amp; structure</h2>
+        <div class="panel-body" id="layers-mount"></div>
+      </aside>
+
+      <main class="stage">
+        <div class="canvas-mount" id="canvas-mount"></div>
+        <p class="canvas-hint">
+          Drag to move · handles to resize · scroll to zoom · drag empty space to pan ·
+          <kbd>shift</kbd> snaps to half-hours · <kbd>0</kbd> resets · <kbd>l</kbd> locks
+        </p>
+      </main>
+
+      <aside class="panel panel-right">
+        <div class="panel-body" id="inspector-mount"></div>
+      </aside>
+
+      <section class="panel panel-bottom" id="report-mount"></section>
+    </div>
+
+    <noscript>
+      <p class="noscript">The Placement Engine canvas needs JavaScript enabled.</p>
+    </noscript>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
