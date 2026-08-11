@@ -15,13 +15,19 @@ import {
 import {
   anchorSegments,
   applyLinks,
+  bandWidthInches,
   compositionGravity,
   dependentsOf,
+  geometryMetrics,
   presenceOf,
   restZones,
 } from '../src/core/analysis.js';
 import { explainObject, shortReason } from '../src/core/explain.js';
-import { validateBlueprint, ADVISORY_THRESHOLDS } from '../src/core/validate.js';
+import {
+  validateBlueprint,
+  PROVISIONAL_THRESHOLDS,
+  UNIFORM_HALF_ANNULUS_CONCENTRATION,
+} from '../src/core/validate.js';
 import {
   hydrate,
   setAnchorArc,
@@ -84,12 +90,13 @@ test('base radii derive correctly for the default form', () => {
 
 test('anchor is the heaviest element in the default composition', () => {
   const bp = fresh();
-  const anchorPresence = presenceOf(getAnchor(bp), bp.base);
-  const sweepPresence = presenceOf(getSweep(bp), bp.base);
-  const echoPresence = presenceOf(getEcho(bp), bp.base);
+  const anchorPresence = presenceOf(getAnchor(bp));
+  const sweepPresence = presenceOf(getSweep(bp));
+  const echoPresence = presenceOf(getEcho(bp));
 
   close(anchorPresence, 60);
-  close(sweepPresence, 31.225, 0.01);
+  // 135 deg travel x 0.30 band x 0.775 average taper x 0.6 strength
+  close(sweepPresence, 18.833, 0.01);
   close(echoPresence, 10.71);
 
   assert.ok(anchorPresence > sweepPresence);
@@ -98,35 +105,61 @@ test('anchor is the heaviest element in the default composition', () => {
 
 test('the clearance is a void and carries no visual weight', () => {
   const bp = fresh();
-  assert.equal(presenceOf(getClearance(bp), bp.base), 0);
+  assert.equal(presenceOf(getClearance(bp)), 0);
 });
 
-test('composition gravity is asymmetric but below the half-moon threshold', () => {
+test('composition gravity measures concentration and direction', () => {
   const bp = fresh();
   const gravity = compositionGravity(bp);
 
-  close(gravity.total, 101.935, 0.01);
-  close(gravity.concentration, 0.5835, 0.001);
-  assert.ok(
-    gravity.concentration < ADVISORY_THRESHOLDS.halfMoonConcentration,
-    'default composition should not read as a half-moon',
-  );
+  close(gravity.total, 89.543, 0.01);
+  close(gravity.concentration, 0.6488, 0.001);
   // Weight pulled toward the worked left side of the form.
   assert.ok(gravity.deg > 225 && gravity.deg < 290, `gravity at ${gravity.deg}`);
 });
 
-test('a genuine half-moon trips the concentration threshold', () => {
+test('concentration is bounded by its own definition', () => {
+  // 0 = weight spread evenly, 1 = all weight at one point. The uniform
+  // half-annulus reference sits between them. It is a shape comparison, not a
+  // pass mark — see CONFLICTS.md C-07 (REVISED).
+  assert.ok(UNIFORM_HALF_ANNULUS_CONCENTRATION > 0 && UNIFORM_HALF_ANNULUS_CONCENTRATION < 1);
+  close(UNIFORM_HALF_ANNULUS_CONCENTRATION, 0.6366, 0.001);
+
   let bp = fresh();
-  // Collapse everything onto the anchor side: kill the echo, shrink the sweep.
   bp = updateProperty(bp, 'echo-1', 'visual_weight', 0);
   bp = updateProperty(bp, 'sweep-1', 'arc_deg', 30);
   bp = updateProperty(bp, 'anchor-1', 'arc_deg', 150);
+  const concentrated = compositionGravity(bp).concentration;
 
-  const gravity = compositionGravity(bp);
-  assert.ok(
-    gravity.concentration > ADVISORY_THRESHOLDS.halfMoonConcentration,
-    `expected a half-moon, got concentration ${gravity.concentration}`,
-  );
+  assert.ok(concentrated > 0.9, `expected near-total concentration, got ${concentrated}`);
+  assert.ok(concentrated <= 1.0001);
+});
+
+test('geometry metrics namespace keeps measurement out of the blueprint', () => {
+  const bp = fresh();
+  const metrics = geometryMetrics(bp);
+
+  assert.equal(metrics.calibration, 'provisional');
+  assert.ok(metrics.composition_gravity.concentration > 0);
+  close(metrics.rest.total_deg, 131);
+  assert.equal(Object.keys(metrics.presence).length, 4);
+
+  // Nothing measured is ever written onto the blueprint.
+  assert.equal(bp.geometry_metrics, undefined);
+  assert.equal(bp.gravity_intent.value, 'grounded');
+  assert.equal('composition_gravity' in bp, false);
+});
+
+test('sweep band width is a radial thickness independent of travel', () => {
+  const bp = fresh();
+  const sweep = getSweep(bp);
+
+  close(sweep.band_width_norm, 0.3);
+  close(bandWidthInches(sweep, bp.base), 1.5); // 30% of the 5 in ring
+
+  // Changing how far it travels must not change how thick it is.
+  const longer = updateProperty(bp, 'sweep-1', 'arc_deg', 300);
+  close(bandWidthInches(getSweep(longer), longer.base), 1.5);
 });
 
 test('rest zones are the angular complement of the placed mass', () => {
@@ -237,6 +270,9 @@ test('property edits clamp to their declared bounds', () => {
 
   bp = updateProperty(bp, 'sweep-1', 'arc_deg', 9999);
   close(getSweep(bp).arc_deg, 330);
+
+  bp = updateProperty(bp, 'sweep-1', 'band_width_norm', 4);
+  close(getSweep(bp).band_width_norm, 1);
 });
 
 test('non-numeric and unknown-option edits are rejected outright', () => {
@@ -376,13 +412,16 @@ test('an echo approaching parity trips the advisory before the error', () => {
   // presence 34 * 0.7 * w vs anchor 60 -> w = 0.8 gives ~32%, w must go high to rival.
   const bp = updateProperty(updateProperty(fresh(), 'echo-1', 'arc_deg', 90), 'echo-1', 'visual_weight', 0.85);
   const report = validateBlueprint(bp);
+  const result = report.advisories.find((r) => r.id === 'echo_not_rivalling');
 
   assert.ok(report.ok, 'should still be saveable');
-  assert.equal(report.advisories.find((r) => r.id === 'echo_not_rivalling').status, 'fail');
+  assert.equal(result.status, 'fail');
+  assert.equal(result.calibration, 'provisional');
+  assert.match(result.detail, /placeholder/);
 });
 
 test('a sweep heavier than the anchor trips the dominance advisory the ticket would miss', () => {
-  let bp = updateProperty(fresh(), 'sweep-1', 'width_deg', 30);
+  let bp = updateProperty(fresh(), 'sweep-1', 'band_width_norm', 1);
   bp = updateProperty(bp, 'sweep-1', 'strength', 1);
   bp = updateProperty(bp, 'sweep-1', 'arc_deg', 300);
 
@@ -416,7 +455,7 @@ test('a sweep crossing the clearance at a different depth is not an obstruction'
   bp = updateProperty(bp, 'clearance-1', 'radial_position', 1);
   bp = updateProperty(bp, 'clearance-1', 'radial_extent', 0.25);
   bp = updateProperty(bp, 'sweep-1', 'radial_position', 0);
-  bp = updateProperty(bp, 'sweep-1', 'width_deg', 4);
+  bp = updateProperty(bp, 'sweep-1', 'band_width_norm', 0.08);
   bp = updateProperty(bp, 'sweep-1', 'curvature', 0);
   // Make the sweep travel across the clearance angle.
   bp = setLocked(bp, 'sweep-1', true);
@@ -456,10 +495,11 @@ test('a clearance that hollows out the anchor is flagged', () => {
 });
 
 test('a fattened sweep trips the hedge advisory from GRN-B02', () => {
-  const bp = updateProperty(fresh(), 'sweep-1', 'width_deg', 25);
+  const bp = updateProperty(fresh(), 'sweep-1', 'band_width_norm', 0.8);
   const result = validateBlueprint(bp).advisories.find((r) => r.id === 'sweep_is_gesture');
   assert.equal(result.status, 'fail');
-  assert.match(result.detail, /hedge of greenery/);
+  assert.match(result.detail, /gesture, never a hedge/);
+  assert.equal(result.calibration, 'provisional');
 });
 
 test('a composition with no breathing room is flagged', () => {
@@ -522,7 +562,7 @@ test('commitRevision bumps the revision and appends history', () => {
 test('hydrate migrates a sparse blueprint and reflows its links', () => {
   const bp = fresh();
   delete bp.view;
-  delete bp.composition_gravity;
+  delete bp.gravity_intent;
   delete bp.emotional_profile;
   bp.objects.find((o) => o.id === 'sweep-1').start_deg = 0; // stale position
 
@@ -530,7 +570,7 @@ test('hydrate migrates a sparse blueprint and reflows its links', () => {
   assert.deepEqual(errors, []);
   assert.ok(ok);
   assert.ok(blueprint.view, 'view state restored');
-  assert.equal(blueprint.composition_gravity.declared, 'grounded');
+  assert.equal(blueprint.gravity_intent.value, 'grounded');
   close(getSweep(blueprint).start_deg, 270, 1e-6); // recomputed from the anchor
 });
 
@@ -544,7 +584,7 @@ test('a full edit-and-reload cycle preserves every transform', () => {
   let bp = fresh();
   bp = setAnchorArc(bp, 'anchor-1', { startDeg: 195, arcDeg: 75 });
   bp = updateProperty(bp, 'sweep-1', 'curvature', -0.4);
-  bp = updateProperty(bp, 'sweep-1', 'width_deg', 11);
+  bp = updateProperty(bp, 'sweep-1', 'band_width_norm', 0.22);
   bp = setArcWidth(bp, 'echo-1', 28);
   bp = setLocked(bp, 'echo-1', true);
   bp = setAuthorNote(bp, 'echo-1', 'Held at 5 o clock deliberately.');
@@ -573,4 +613,125 @@ test('objectRange agrees with the stored representation for each object kind', (
   const sweepRange = objectRange(getSweep(bp));
   close(sweepRange.start, 270);
   close(sweepRange.span, 135);
+});
+
+/* ================================================================== *
+ * Schema 1.0.0 -> 1.1.0 migration (rulings of 2026-08-11)
+ * ================================================================== */
+
+test('a 1.0.0 blueprint migrates its gravity field and sweep width', () => {
+  // Hand-built 1.0.0 record: composition_gravity.declared, sweep width_deg.
+  const legacy = {
+    schema_version: '1.0.0',
+    engine_version: 'placement-engine/sprint-1',
+    id: 'bp-legacy',
+    name: 'Legacy blueprint',
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    revision: 3,
+    lifecycle_status: 'draft',
+    emotional_profile: { intent: 'A held breath.', keywords: [] },
+    composition_gravity: { declared: 'lifted', note: 'author note' },
+    base: { shape: 'circle', diameter_in: 24, ring_width_in: 5, depth_in: 4, visible: true, locked: false },
+    objects: [
+      { ...createBlueprint({ id: 'x' }).objects[0] },
+      { ...createBlueprint({ id: 'x' }).objects[1] },
+      {
+        ...createBlueprint({ id: 'x' }).objects[2],
+        width_deg: 15,
+        band_width_norm: undefined,
+      },
+      { ...createBlueprint({ id: 'x' }).objects[3] },
+    ],
+    view: { clock_overlay: true, rest_zones: true, gravity_marker: true, snap_deg: 15, zoom: 1, pan_x: 0, pan_y: 0 },
+    history: [],
+  };
+  delete legacy.objects[2].band_width_norm;
+
+  const { ok, errors, blueprint } = hydrate(legacy);
+  assert.deepEqual(errors, []);
+  assert.ok(ok);
+
+  assert.equal(blueprint.schema_version, '1.1.0');
+
+  // Intent moved to its own field; the old shared field is gone.
+  assert.equal(blueprint.gravity_intent.value, 'lifted');
+  assert.equal(blueprint.gravity_intent.note, 'author note');
+  assert.equal('composition_gravity' in blueprint, false);
+
+  // width_deg is gone, replaced by a true radial band width that reproduces
+  // what 1.0.0 actually drew: 15 deg x 9.5 in mean radius = 2.487 in of a 5 in ring.
+  const sweep = getSweep(blueprint);
+  assert.equal(sweep.width_deg, undefined);
+  close(sweep.band_width_norm, 0.4974, 0.001);
+  close(bandWidthInches(sweep, blueprint.base), 2.4871, 0.001);
+
+  // The migration records itself.
+  assert.match(blueprint.history.at(-1).note, /Migrated 1\.0\.0 to 1\.1\.0/);
+});
+
+test('the current schema rejects a resurrected composition_gravity field', () => {
+  const bp = fresh();
+  bp.composition_gravity = { declared: 'grounded' };
+  const { ok, errors } = validateSchema(bp);
+  assert.ok(!ok);
+  assert.match(errors.join(' '), /Intent is gravity_intent/);
+});
+
+test('every validator result declares whether it rests on a calibrated rule', () => {
+  for (const result of validateBlueprint(fresh()).results) {
+    assert.ok(['structural', 'provisional'].includes(result.calibration),
+      `${result.id} has calibration "${result.calibration}"`);
+    assert.ok(['pass', 'fail', 'metric'].includes(result.status));
+  }
+});
+
+test('mass concentration is reported as a measurement, never as a verdict', () => {
+  const result = validateBlueprint(fresh()).advisories.find((r) => r.id === 'balance_concentration');
+
+  assert.equal(result.status, 'metric', 'must not claim pass or fail');
+  assert.equal(result.calibration, 'provisional');
+  // The rejected language must not reappear.
+  assert.doesNotMatch(result.detail, /resolved|unresolved|half-moon/i);
+  assert.match(result.detail, /No calibrated threshold/);
+});
+
+test('provisional thresholds are tagged wherever they decide an outcome', () => {
+  const report = validateBlueprint(fresh());
+  const provisionalIds = report.results
+    .filter((r) => r.calibration === 'provisional')
+    .map((r) => r.id)
+    .sort();
+
+  // Everything that leans on an invented number or the presence model.
+  assert.deepEqual(provisionalIds, [
+    'anchor_dominant',
+    'balance_concentration',
+    'clearance_within_anchor',
+    'echo_not_rivalling',
+    'echo_smaller_than_anchor',
+    'rest_zones_present',
+    'sweep_is_gesture',
+  ]);
+
+  // Structural checks make no aesthetic claim, so they carry no tag.
+  const structural = report.results.filter((r) => r.calibration === 'structural').map((r) => r.id).sort();
+  assert.deepEqual(structural, [
+    'explanations_present',
+    'gravity_matches_intent',
+    'hardware_clearance_unobstructed',
+    'schema_valid',
+    'single_primary_anchor',
+  ]);
+});
+
+test('PROVISIONAL_THRESHOLDS holds only uncalibrated placeholders', () => {
+  // Guard against a threshold quietly reappearing as if it were canon.
+  assert.deepEqual(Object.keys(PROVISIONAL_THRESHOLDS).sort(), [
+    'echoParityRatio',
+    'maxSweepBandNorm',
+    'minAnchorMassRatio',
+    'minRestDegrees',
+    'minRestTotalDegrees',
+  ]);
 });

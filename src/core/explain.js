@@ -15,9 +15,9 @@
  * new rule.
  */
 
-import { formatClock, normDeg, widthDegToInches } from './geometry.js';
-import { baseRadii, getAnchor, objectCenter, objectRange, BEHAVIOR_CANON_REF } from './schema.js';
-import { bandFraction, dependentsOf, parentOf, presenceOf } from './analysis.js';
+import { formatClock, normDeg } from './geometry.js';
+import { getAnchor, objectCenter, objectRange, BEHAVIOR_CANON_REF } from './schema.js';
+import { bandWidthInches, dependentsOf, parentOf, presenceOf } from './analysis.js';
 import { getRules } from './canon.js';
 
 /** Plain-language sector name for an angle, for readable explanations. */
@@ -55,11 +55,11 @@ const round = (n, places = 1) => {
 function explainAnchor(bp, obj) {
   const range = objectRange(obj);
   const center = objectCenter(obj);
-  const presence = presenceOf(obj, bp.base);
+  const presence = presenceOf(obj);
 
   const others = bp.objects
     .filter((o) => o.id !== obj.id && o.kind !== 'clearance')
-    .map((o) => ({ label: o.label, presence: presenceOf(o, bp.base) }))
+    .map((o) => ({ label: o.label, presence: presenceOf(o) }))
     .sort((a, b) => b.presence - a.presence);
 
   const rival = others[0];
@@ -102,9 +102,8 @@ function explainClearance(bp, obj) {
 function explainSweep(bp, obj) {
   const range = objectRange(obj);
   const anchor = parentOf(bp, obj) ?? getAnchor(bp);
-  const { rMean } = baseRadii(bp.base);
-  const thicknessIn = widthDegToInches(obj.width_deg ?? 0, rMean);
-  const fraction = bandFraction(obj, bp.base);
+  const thicknessIn = bandWidthInches(obj, bp.base);
+  const fraction = obj.band_width_norm ?? 0;
   const behaviorRule = BEHAVIOR_CANON_REF[obj.behavior_type] ?? 'GRN.B02';
 
   const origin = anchor
@@ -122,8 +121,8 @@ function explainSweep(bp, obj) {
       `The path ${origin}, and travels ${round(range.span)}° clockwise to ${formatClock(range.start + range.span)} ` +
       `across the ${describeSector(objectCenter(obj))} of the form. EC-GRN-001 establishes greenery architecture ` +
       `before floral placement — this path is the movement florals will later reinforce, not decoration in its ` +
-      `own right. Its band is ${round(thicknessIn, 2)} in wide (${round(obj.width_deg)}° at the ring's mean ` +
-      `radius), which is ${round(fraction * 100, 0)}% of the ring width.${taperNote}`,
+      `own right. Its band is ${round(thicknessIn, 2)} in thick across the ring — ${round(fraction * 100, 0)}% ` +
+      `of the base band width — while travelling ${round(range.span)}° around it.${taperNote}`,
     canon: ['GRN.L1', 'GRN.L2', 'GRN.L7', behaviorRule, 'SPEC.SWEEP', 'COMP.L3'],
   };
 }
@@ -131,8 +130,8 @@ function explainSweep(bp, obj) {
 function explainEcho(bp, obj) {
   const anchor = parentOf(bp, obj) ?? getAnchor(bp);
   const center = objectCenter(obj);
-  const presence = presenceOf(obj, bp.base);
-  const anchorPresence = anchor ? presenceOf(anchor, bp.base) : 0;
+  const presence = presenceOf(obj);
+  const anchorPresence = anchor ? presenceOf(anchor) : 0;
   const ratio = anchorPresence > 0 ? presence / anchorPresence : 0;
 
   const separation = Math.abs(obj.link?.offset_deg ?? 0);
@@ -249,7 +248,7 @@ export function shortReason(bp, obj) {
       return `Carries movement ${Math.round(objectRange(obj).span)}° from the anchor.`;
     case 'secondary_echo': {
       const anchor = getAnchor(bp);
-      const ratio = anchor ? presenceOf(obj, bp.base) / (presenceOf(anchor, bp.base) || 1) : 0;
+      const ratio = anchor ? presenceOf(obj) / (presenceOf(anchor) || 1) : 0;
       return `Counterweight at ${formatClock(objectCenter(obj))}, ${Math.round(ratio * 100)}% of anchor weight.`;
     }
     default:

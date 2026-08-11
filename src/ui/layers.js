@@ -63,7 +63,7 @@ export function createLayersPanel({ mount, getState, onSelect, onToggleVisible, 
 
     for (const obj of objects) {
       const range = objectRange(obj);
-      const presence = presenceOf(obj, blueprint.base);
+      const presence = presenceOf(obj);
 
       // Objects the ticket describes as a span read as a range ("7:00 → 9:00");
       // objects it describes by position read as a centre ("5:00").
@@ -100,7 +100,7 @@ export function createLayersPanel({ mount, getState, onSelect, onToggleVisible, 
     rows.push(overlayRow('Clock overlay', 'clock_overlay', view.clock_overlay,
       'Hour positions and spokes.', onView));
     rows.push(overlayRow('Composition gravity', 'gravity_marker', view.gravity_marker,
-      'Presence-weighted centre of visual weight.', onView));
+      'Measured centre of visual mass. Provisional model.', onView));
 
     /* Deferred layers */
     rows.push(h('div', { class: 'layer-group-label', text: 'Later sprints' }));

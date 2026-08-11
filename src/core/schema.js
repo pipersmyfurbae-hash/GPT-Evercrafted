@@ -14,17 +14,27 @@
  * 3. Hardware clearance is a first-class object linked to the anchor, not a
  *    property of it. See CONFLICTS.md C-02.
  *
- * 4. `emotional_profile` and `composition_gravity.declared` are carried even
- *    though the ticket's persist list omits them. See CONFLICTS.md C-06.
+ * 4. `emotional_profile` and `gravity_intent` are carried even though the
+ *    ticket's persist list omits them. See CONFLICTS.md C-06.
+ *
+ * 5. INTENT AND MEASUREMENT NEVER SHARE A FIELD. Authored intent is persisted
+ *    (`gravity_intent`); measured geometry is computed on demand and lives in
+ *    the `geometry_metrics` namespace in analysis.js. An authored concept and a
+ *    measured number are not two versions of the same truth, so they are never
+ *    stored as two keys on one object. See CONFLICTS.md C-01 and the
+ *    architectural principle at the foot of that file.
  */
 
-import { normDeg, clampSpan } from './geometry.js';
+import { normDeg, clampSpan, legacyWidthDegToInches } from './geometry.js';
 
-export const SCHEMA_VERSION = '1.0.0';
+export const SCHEMA_VERSION = '1.1.0';
 export const ENGINE_VERSION = 'placement-engine/sprint-1';
 
-/** Composition gravity vocabulary, from EC-COMP-001 "Composition Gravity". */
-export const GRAVITY_MODES = [
+/**
+ * Authored gravity-intent vocabulary, from EC-COMP-001 "Composition Gravity".
+ * These are intentions, not measurements — most of them have no angle at all.
+ */
+export const GRAVITY_INTENTS = [
   'grounded',
   'lifted',
   'outward',
@@ -107,8 +117,8 @@ export const DEFAULTS = Object.freeze({
     // Starts at the anchor's leading (clockwise) edge = 9:00, travels clockwise
     // up over 12 to roughly 1:30. See CONFLICTS.md C-05.
     offset_deg: 0,
-    arc_deg: 135,
-    width_deg: 15, // spec's starting test value; see CONFLICTS.md C-04
+    arc_deg: 135, // how far it travels AROUND the form
+    band_width_norm: 0.3, // how thick it is ACROSS the ring; see CONFLICTS.md C-04
     curvature: 0.25,
     taper: 0.45,
     strength: 0.6,
@@ -194,7 +204,7 @@ export function createSweep(overrides = {}) {
     },
     start_deg: 270, // recomputed from the link on every reflow
     arc_deg: DEFAULTS.sweep.arc_deg,
-    width_deg: DEFAULTS.sweep.width_deg,
+    band_width_norm: DEFAULTS.sweep.band_width_norm,
     curvature: DEFAULTS.sweep.curvature,
     taper: DEFAULTS.sweep.taper,
     strength: DEFAULTS.sweep.strength,
@@ -255,10 +265,11 @@ export function createBlueprint(options = {}) {
       keywords: [],
     },
 
-    // See CONFLICTS.md C-01: `declared` is authored intent; the computed gravity
-    // vector is derived live in analysis.js and deliberately not stored.
-    composition_gravity: {
-      declared: 'grounded',
+    // Authored intent only. The measured gravity vector is computed live in
+    // analysis.js under `geometry_metrics` and is deliberately never stored
+    // beside this. See CONFLICTS.md C-01.
+    gravity_intent: {
+      value: 'grounded',
       note: '',
     },
 
@@ -346,7 +357,7 @@ export const PROPERTY_SPECS = {
     { key: 'behavior_type', label: 'Behaviour', kind: 'select', options: BEHAVIOR_TYPES, hint: 'EC-GRN-001 behaviour library. Behaviour is selected before species.' },
     { key: 'link.offset_deg', label: 'Offset from anchor edge', kind: 'deg', min: -60, max: 60, step: 1 },
     { key: 'arc_deg', label: 'Travel', kind: 'deg', min: 10, max: 330, step: 1, hint: 'Clockwise travel from the start of the path.' },
-    { key: 'width_deg', label: 'Band width', kind: 'width', min: 2, max: 60, step: 0.5, hint: 'Thickness measured as arc-degrees at the ring mean radius. See CONFLICTS.md C-04.' },
+    { key: 'band_width_norm', label: 'Band width', kind: 'band_width', min: 0.04, max: 1, step: 0.01, hint: 'Radial thickness ACROSS the ring, as a fraction of the base band width. Travel around the form is set by Travel above.' },
     { key: 'curvature', label: 'Curvature', kind: 'number', min: -1, max: 1, step: 0.05, hint: 'Radial bow at the midpoint. Positive lifts the path outward.' },
     { key: 'taper', label: 'Taper', ...RATIO, hint: 'How much the band narrows along its travel. GRN-B02 wants a gesture, not a hedge.' },
     { key: 'strength', label: 'Strength', ...RATIO, hint: 'Visual assertiveness of the gesture.' },
@@ -390,7 +401,7 @@ export function setPath(obj, path, value) {
 
 const NUMBER_FIELDS = {
   pocket: ['arc_deg', 'depth_ratio', 'visual_weight'],
-  behavior_path: ['start_deg', 'arc_deg', 'width_deg', 'curvature', 'taper', 'strength', 'radial_position', 'priority'],
+  behavior_path: ['start_deg', 'arc_deg', 'band_width_norm', 'curvature', 'taper', 'strength', 'radial_position', 'priority'],
   clearance: ['center_deg', 'arc_deg', 'radial_position', 'radial_extent'],
 };
 
@@ -422,8 +433,11 @@ export function validateSchema(bp) {
     }
   }
 
-  if (bp.composition_gravity && !GRAVITY_MODES.includes(bp.composition_gravity.declared)) {
-    fail(`Unknown composition_gravity.declared "${bp.composition_gravity.declared}".`);
+  if (bp.gravity_intent && !GRAVITY_INTENTS.includes(bp.gravity_intent.value)) {
+    fail(`Unknown gravity_intent.value "${bp.gravity_intent.value}".`);
+  }
+  if ('composition_gravity' in bp) {
+    fail('composition_gravity is a 1.0.0 field. Intent is gravity_intent; the measurement is not persisted.');
   }
 
   if (!Array.isArray(bp.objects)) {
@@ -484,27 +498,69 @@ export function validateSchema(bp) {
 }
 
 /**
- * Forward-compatibility hook. Sprint 1 only knows 1.0.0, but reading a blueprint
- * always goes through here so future versions have one place to land.
+ * Bring any stored blueprint up to the current schema.
+ *
+ * Every read goes through here, so version handling has exactly one home.
+ *
+ * 1.0.0 -> 1.1.0 carries two ruled changes (2026-08-11):
+ *   - `composition_gravity.declared` becomes `gravity_intent.value`, because
+ *     authored intent and measured geometry must never share a field.
+ *   - the sweep's `width_deg` becomes `band_width_norm`, because the 1.0.0
+ *     reading converted an arc length along the ring into a thickness across
+ *     it. The old arithmetic is replayed once, here, so a blueprint saved under
+ *     1.0.0 reopens looking exactly as its author left it.
  */
 export function migrate(bp) {
   if (!bp || typeof bp !== 'object') return bp;
   const next = structuredClone(bp);
+  const from = next.schema_version;
 
   if (!next.view) {
     next.view = { clock_overlay: true, rest_zones: true, gravity_marker: true, snap_deg: 15, zoom: 1, pan_x: 0, pan_y: 0 };
   }
   if (!next.history) next.history = [];
-  if (!next.composition_gravity) next.composition_gravity = { declared: 'grounded', note: '' };
   if (!next.emotional_profile) next.emotional_profile = { intent: '', keywords: [] };
   if (!next.lifecycle_status) next.lifecycle_status = 'draft';
   if (!next.engine_version) next.engine_version = ENGINE_VERSION;
+
+  // --- 1.0.0 gravity field rename ---
+  if (next.composition_gravity) {
+    next.gravity_intent = next.gravity_intent ?? {
+      value: next.composition_gravity.declared ?? 'grounded',
+      note: next.composition_gravity.note ?? '',
+    };
+    delete next.composition_gravity;
+  }
+  if (!next.gravity_intent) next.gravity_intent = { value: 'grounded', note: '' };
+
+  const { ringWidth, rMean } = next.base ? baseRadii(next.base) : { ringWidth: 0, rMean: 0 };
 
   for (const obj of next.objects ?? []) {
     if (!obj.explanation) obj.explanation = emptyExplanation();
     if (typeof obj.explanation.author_note !== 'string') obj.explanation.author_note = '';
     if (typeof obj.visible !== 'boolean') obj.visible = true;
     if (typeof obj.locked !== 'boolean') obj.locked = false;
+
+    // --- 1.0.0 sweep width reinterpretation ---
+    if (obj.kind === 'behavior_path' && obj.band_width_norm === undefined) {
+      const legacyInches = legacyWidthDegToInches(obj.width_deg ?? 0, rMean);
+      obj.band_width_norm = ringWidth > 0
+        ? Math.min(1, Math.max(0.04, legacyInches / ringWidth))
+        : DEFAULTS.sweep.band_width_norm;
+      delete obj.width_deg;
+    }
+  }
+
+  if (from && from !== SCHEMA_VERSION) {
+    next.schema_version = SCHEMA_VERSION;
+    next.history = [
+      ...next.history,
+      {
+        revision: next.revision ?? 1,
+        at: next.updated_at ?? nowIso(),
+        note: `Migrated ${from} to ${SCHEMA_VERSION}: gravity_intent split from measurement, sweep width re-expressed as radial band width.`,
+      },
+    ].slice(-100);
   }
 
   return next;

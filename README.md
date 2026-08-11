@@ -11,7 +11,7 @@ define, edit, save, and reload the first Evercrafted placement skeleton.
 
 ```bash
 npm start          # serves at http://127.0.0.1:4173
-npm test           # 91 tests, zero dependencies
+npm test           # 101 tests, zero dependencies
 ```
 
 No build step, no dependencies. `npm start` runs a ~60-line static server from the Node standard
@@ -30,19 +30,24 @@ Playwright is not a project dependency — `npm test` stays dependency-free.
 
 ## Read this first
 
-**[`CONFLICTS.md`](./CONFLICTS.md)** — ten places where the Sprint 1 build ticket contradicts,
-under-specifies, or silently drops something the canon or spec requires. Each has a provisional
-resolution chosen to satisfy *both* readings where possible, and each names the exact file and
-constant to change if the ruling goes the other way. **None of those resolutions are canon.** They
-are awaiting a creative-director decision.
+**[`CONFLICTS.md`](./CONFLICTS.md)** — ten places where the Sprint 1 build ticket contradicted,
+under-specified, or silently dropped something the canon or spec requires. **All ten were ruled on
+2026-08-11**: eight accepted as implemented, two revised. The file is permanent architectural
+memory — entries stay after they are ruled, so a later sprint sees the decision rather than
+rediscovering the ambiguity.
 
-The three that most affect the data model:
+The two revisions changed the model:
 
-| | Conflict | Held as |
+| | Conflict | Ruling |
 |---|---|---|
-| C-01 | Composition gravity is sequenced *before* the anchor in the engine spec and *after* it in the composition canon | Both — an authored `declared` value and a live computed vector, never reconciled silently |
-| C-02 | Hardware clearance is a property of the anchor in two sources and its own object in three | First-class object linked to the anchor, surfaced as a child in the anchor's inspector |
-| C-04 | The sweep's "≈15°" width names no axis — degrees are an angle, width is a distance | Band thickness measured as arc-degrees at the ring's mean radius, shown in inches too |
+| C-04 | The sweep's "≈15°" width names no axis | **REVISED.** The Sprint 1 reading converted an arc length *along* the ring and used it as thickness *across* it — perpendicular axes. Replaced by `band_width_norm`, a true radial thickness. |
+| C-07 | The ticket's validators are narrower than the spec's acceptance criteria | **PARTIALLY REVISED.** Tiers kept; the invented numeric thresholds lost their authority. A threshold is a calibration value, not an aesthetic guess. |
+
+And one principle generalised out of C-01:
+
+> **Intent and measurement never share a field.** Authored intent is persisted (`gravity_intent`);
+> measured geometry is computed on demand under `geometry_metrics` and never written back. Not
+> `x.declared` / `x.computed` — different names, different homes, different lifetimes.
 
 ---
 
@@ -112,15 +117,16 @@ and input format. See CONFLICTS.md C-08.
 
 The default blueprint is the spec's 24-inch test composition, and it passes every validator clean:
 
-| Object | Position | Presence |
-|---|---|---|
-| Primary anchor | 7:00 → 9:00 (60°) | 60.0 |
-| Hardware clearance | centred 8:00, 22° wide | reserved void |
-| Primary sweep | 9:00 → 1:30 (135° clockwise) | 31.2 |
-| Secondary echo | 5:00, 34° wide | 10.7 |
+| Object | Position | Band / arc | Presence |
+|---|---|---|---|
+| Primary anchor | 7:00 → 9:00 | 60° arc | 60.0 |
+| Hardware clearance | centred 8:00 | 22° arc | reserved void |
+| Primary sweep | 9:00 → 1:30 | 135° travel, 1.5 in thick | 18.8 |
+| Secondary echo | 5:00 | 34° arc | 10.7 |
 
-131° of the form is left as rest, in two zones of 88° and 43°. Visual weight concentration is
-**0.58**, against a half-moon threshold of 2/π ≈ **0.637** — asymmetric, as intended, but resolved.
+131° of the form is left as rest, in two zones of 88° and 43°. Mass concentration measures **0.65**
+— reported as a measurement, not a verdict. No calibrated threshold for "resolved" exists yet, and
+the engine does not pretend otherwise.
 
 The ticket's Developer Note is taken seriously: these clock positions are the first canonical test
 composition, not design law. Every one of them is an editable property with no special-casing
@@ -140,9 +146,14 @@ the ticket does. The clearest example: the ticket only compares the *echo* to th
 **sweep** that out-masses the anchor breaks EC-COMP-001 Law 1 while passing every ticketed
 validator. That is an advisory, not a silent pass.
 
-Advisories cover anchor dominance against all objects, echo-approaching-parity, half-moon
-concentration, rest-zone presence, sweep-is-a-gesture-not-a-hedge (GRN-B02), clearance containment,
-and declared-vs-computed gravity.
+**Every result declares its own basis.** A `calibration` field marks each one `structural`
+(counting, containment, schema, geometric overlap — nothing to calibrate) or `provisional` (rests on
+an invented threshold, or on the uncalibrated visual-presence model). Provisional results are
+visibly tagged in the UI. A third status, `metric`, reports a measured number with *no verdict*,
+because no calibrated predicate exists for it — mass concentration is the current example.
+
+Every uncalibrated number lives in `PROVISIONAL_THRESHOLDS`. When EC-GEO-001 / EC-CAL supply
+calibrated predicates, those constants get deleted, not tuned.
 
 ---
 

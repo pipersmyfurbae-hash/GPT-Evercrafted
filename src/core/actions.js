@@ -48,7 +48,7 @@ export function updateProperty(bp, objectId, path, rawValue) {
   const spec = specFor(obj.role, path);
   let value = rawValue;
 
-  if (spec && ['number', 'ratio', 'deg', 'width'].includes(spec.kind)) {
+  if (spec && ['number', 'ratio', 'deg', 'band_width'].includes(spec.kind)) {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return bp;
     value = clamp(numeric, spec.min ?? -Infinity, spec.max ?? Infinity);

@@ -1,14 +1,30 @@
 /**
  * Validation.
  *
- * Two tiers, deliberately kept apart. See CONFLICTS.md C-07.
+ * Two tiers of authority and three kinds of result. See CONFLICTS.md C-07.
  *
- *   ERRORS    — exactly the five validators listed in Sprint 1 ticket §8.
- *               These and only these block.
+ * TIERS
+ *   error    — exactly the five validators listed in Sprint 1 ticket §8.
+ *              These and only these block.
+ *   advisory — derived from the spec's Acceptance Criteria and the canon, which
+ *              ask for more than the ticket does. Never blocks.
  *
- *   ADVISORIES — derived from the spec's Acceptance Criteria and the canon, which
- *               ask for more than the ticket does. Non-blocking, so nothing new
- *               prevents a save the ticket said should succeed.
+ * STATUS
+ *   pass / fail — a predicate was evaluated and returned a verdict.
+ *   metric      — a number was measured and NO verdict was reached, because no
+ *                 calibrated predicate exists for it yet.
+ *
+ * CALIBRATION — the honesty field.
+ *   structural  — counting, containment, schema, geometric overlap. No aesthetic
+ *                 judgement is being made, so there is nothing to calibrate.
+ *   provisional — depends on an invented numeric threshold, or on the
+ *                 uncalibrated visual-presence model. Reported, tagged, and
+ *                 never presented as law.
+ *
+ * A threshold is a calibration value, not an aesthetic guess. Nothing in
+ * PROVISIONAL_THRESHOLDS has been calibrated against real designs, so no result
+ * that depends on one may state a conclusion as fact. EC-GEO-001 / EC-CAL own
+ * the calibrated predicates that will replace them.
  */
 
 import {
@@ -18,6 +34,7 @@ import {
   rangeContains,
   rangeOverlap,
   sweepRadiusAt,
+  clamp01,
 } from './geometry.js';
 import {
   allByRole,
@@ -31,7 +48,7 @@ import {
   validateSchema,
 } from './schema.js';
 import {
-  bandFraction,
+  bandWidthInches,
   clearanceRadii,
   compositionGravity,
   gravityContradiction,
@@ -43,23 +60,40 @@ import {
 } from './analysis.js';
 import { describeSector, explainObject } from './explain.js';
 
-export const ADVISORY_THRESHOLDS = {
-  /** Echo presence above this fraction of the anchor starts rivalling it. */
+/**
+ * PROVISIONAL / UNCALIBRATED THRESHOLDS.
+ *
+ * Every number below is an engineering placeholder chosen to get Sprint 1
+ * moving. None has been calibrated against real designs, and none is canon.
+ * Results that depend on them are tagged `calibration: 'provisional'` and the
+ * UI marks them, so a placeholder can never be mistaken for a design law.
+ *
+ * EC-GEO-001 / EC-CAL own the calibrated predicates that replace these. When
+ * they land, these constants are deleted rather than adjusted.
+ */
+export const PROVISIONAL_THRESHOLDS = {
+  /** Echo presence above this fraction of the anchor is called "approaching parity". */
   echoParityRatio: 0.7,
-  /**
-   * A uniform half-annulus — a literal "half-moon" — has concentration 2/pi.
-   * The spec's Balance Rule warns against exactly that silhouette.
-   */
-  halfMoonConcentration: 2 / Math.PI,
-  /** A rest zone narrower than this does not read as a pause. */
+  /** Below this a rest gap is not counted as a pause. */
   minRestDegrees: 20,
-  /** Total degrees of the form that should remain unworked. */
+  /** Total degrees of the form expected to remain unworked. */
   minRestTotalDegrees: 45,
-  /** Above this fraction of the ring width a sweep stops being a gesture. */
-  maxSweepBandFraction: 0.6,
-  /** Anchor mass left after the clearance is carved out. */
+  /** Above this band width a sweep is called a hedge rather than a gesture. */
+  maxSweepBandNorm: 0.6,
+  /** Anchor mass expected to survive the clearance being carved out. */
   minAnchorMassRatio: 0.4,
 };
+
+/**
+ * Reference value for the mass-concentration READOUT only. A uniform
+ * half-annulus evaluates to 2/pi.
+ *
+ * This is a geometric fact about a shape. It is NOT a threshold: nothing has
+ * established that a composition below it is "resolved" or above it is not, and
+ * the engine must not say so. It is published purely to give the measured
+ * number a sense of scale. See CONFLICTS.md C-07 (REVISED).
+ */
+export const UNIFORM_HALF_ANNULUS_CONCENTRATION = 2 / Math.PI;
 
 /**
  * Rounding that survives malformed input.
@@ -74,11 +108,28 @@ const round = (n, places = 1) => {
 };
 
 function result(id, level, status, title, detail, extras = {}) {
-  return { id, level, status, title, detail, canon: [], objects: [], ...extras };
+  return {
+    id,
+    level,
+    status,
+    title,
+    detail,
+    canon: [],
+    objects: [],
+    calibration: 'structural',
+    ...extras,
+  };
 }
 
 const pass = (id, level, title, detail, extras) => result(id, level, 'pass', title, detail, extras);
 const fail = (id, level, title, detail, extras) => result(id, level, 'fail', title, detail, extras);
+
+/** A measured number with no verdict attached, because none has been earned. */
+const metric = (id, level, title, detail, extras) =>
+  result(id, level, 'metric', title, detail, { calibration: 'provisional', ...extras });
+
+/** Marks a result as resting on an uncalibrated threshold or model. */
+const provisional = (extras = {}) => ({ ...extras, calibration: 'provisional' });
 
 /* ================================================================== *
  * Blocking validators — Sprint 1 ticket §8
@@ -105,18 +156,20 @@ function singlePrimaryAnchor(bp) {
 function echoSmallerThanAnchor(bp) {
   const anchor = getAnchor(bp);
   const echo = getEcho(bp);
-  const meta = {
+  // Ticket-required, so it blocks — but the comparison rides on the
+  // uncalibrated presence model, so it is tagged accordingly.
+  const meta = provisional({
     canon: ['SPEC.ECHO', 'SPEC.DOMINANT'],
     objects: [echo?.id, anchor?.id].filter(Boolean),
-  };
+  });
 
   if (!anchor || !echo) {
     return pass('echo_smaller_than_anchor', 'error', 'Echo vs anchor',
       'No anchor/echo pair to compare.', meta);
   }
 
-  const anchorPresence = presenceOf(anchor, bp.base);
-  const echoPresence = presenceOf(echo, bp.base);
+  const anchorPresence = presenceOf(anchor);
+  const echoPresence = presenceOf(echo);
   const ratio = anchorPresence > 0 ? echoPresence / anchorPresence : Infinity;
 
   const sizeNote =
@@ -254,21 +307,21 @@ function schemaValid(bp) {
 /** Spec: "Anchor remains visually dominant" — against everything, not just the echo. */
 function anchorDominant(bp) {
   const anchor = getAnchor(bp);
-  const meta = { canon: ['SPEC.DOMINANT', 'COMP.L1'], objects: anchor ? [anchor.id] : [] };
+  const meta = provisional({ canon: ['SPEC.DOMINANT', 'COMP.L1'], objects: anchor ? [anchor.id] : [] });
   if (!anchor) {
     return pass('anchor_dominant', 'advisory', 'Anchor dominance', 'No anchor to assess.', meta);
   }
 
-  const anchorPresence = presenceOf(anchor, bp.base);
+  const anchorPresence = presenceOf(anchor);
   const rivals = bp.objects
     .filter((o) => o.id !== anchor.id && o.kind !== 'clearance')
-    .map((o) => ({ obj: o, presence: presenceOf(o, bp.base) }))
+    .map((o) => ({ obj: o, presence: presenceOf(o) }))
     .filter((entry) => entry.presence >= anchorPresence);
 
   if (!rivals.length) {
     const next = bp.objects
       .filter((o) => o.id !== anchor.id && o.kind !== 'clearance')
-      .map((o) => presenceOf(o, bp.base))
+      .map((o) => presenceOf(o))
       .sort((a, b) => b - a)[0] ?? 0;
     return pass('anchor_dominant', 'advisory', 'Anchor is dominant',
       `Anchor presence ${round(anchorPresence)} leads the next heaviest element at ${round(next)}.`, meta);
@@ -283,81 +336,83 @@ function anchorDominant(bp) {
 function echoNotRivalling(bp) {
   const anchor = getAnchor(bp);
   const echo = getEcho(bp);
-  const meta = { canon: ['SPEC.ECHO', 'SPEC.DOMINANT'], objects: [echo?.id].filter(Boolean) };
+  const meta = provisional({ canon: ['SPEC.ECHO', 'SPEC.DOMINANT'], objects: [echo?.id].filter(Boolean) });
   if (!anchor || !echo) {
     return pass('echo_not_rivalling', 'advisory', 'Echo weight', 'No anchor/echo pair to compare.', meta);
   }
 
-  const ratio = presenceOf(echo, bp.base) / (presenceOf(anchor, bp.base) || 1);
-  const limit = ADVISORY_THRESHOLDS.echoParityRatio;
+  const ratio = presenceOf(echo) / (presenceOf(anchor) || 1);
+  const limit = PROVISIONAL_THRESHOLDS.echoParityRatio;
 
   if (ratio <= limit) {
-    return pass('echo_not_rivalling', 'advisory', 'Echo reads as an echo',
-      `Echo carries ${round(ratio * 100, 0)}% of the anchor's presence, below the ${round(limit * 100, 0)}% parity threshold.`, meta);
+    return pass('echo_not_rivalling', 'advisory', 'Echo is well below the anchor',
+      `Echo carries ${round(ratio * 100, 0)}% of the anchor's presence, under the provisional ${round(limit * 100, 0)}% mark.`, meta);
   }
-  return fail('echo_not_rivalling', 'advisory', 'Echo is approaching parity',
-    `Echo carries ${round(ratio * 100, 0)}% of the anchor's presence. Past roughly ${round(limit * 100, 0)}% it stops reading as an echo and starts reading as a second focal area.`, meta);
+  return fail('echo_not_rivalling', 'advisory', 'Echo is approaching the anchor',
+    `Echo carries ${round(ratio * 100, 0)}% of the anchor's presence, over the provisional ${round(limit * 100, 0)}% mark. That figure is an engineering placeholder, not a calibrated point at which an echo stops reading as an echo.`, meta);
 }
 
-/** Spec Balance Rule: avoid an unresolved "half-moon". */
+/**
+ * Mass concentration — REPORTED, NOT JUDGED.
+ *
+ * The spec's Balance Rule warns against an unresolved "half-moon", but nothing
+ * has established the number at which a composition crosses that line. Sprint 1
+ * originally used 2/pi as a pass/fail threshold; that was an engineering guess
+ * dressed as a verdict and the ruling on CONFLICTS.md C-07 removed it.
+ *
+ * So this reports the measurement and the scale reference, and stops. Saying
+ * "0.58 is resolved because it is under 0.637" is a conclusion the engine has
+ * not earned. EC-GEO-001 owns the calibrated predicate.
+ */
 function balanceConcentration(bp) {
   const gravity = compositionGravity(bp);
-  const limit = ADVISORY_THRESHOLDS.halfMoonConcentration;
-  const meta = { canon: ['SPEC.BALANCE', 'COMP.BALANCE', 'COMP.GRAVITY'], objects: [] };
+  const where = gravity.concentration < 0.12 ? 'the centre' : describeSector(gravity.deg);
 
-  const detail =
-    `Visual weight concentration is ${round(gravity.concentration, 2)} toward the ` +
-    `${gravity.concentration < 0.12 ? 'centre' : describeSector(gravity.deg)} ` +
-    `(a uniform half-moon reads ${round(limit, 2)}).`;
-
-  if (gravity.concentration <= limit) {
-    return pass('balance_concentration', 'advisory', 'Weight is asymmetric but resolved', detail, meta);
-  }
-  return fail('balance_concentration', 'advisory', 'Unresolved half-moon',
-    `${detail} Mass is bunched into one side of the form. The spec allows asymmetry but asks for balanced visual weight unless a half-moon formula was deliberately chosen.`, meta);
+  return metric('balance_concentration', 'advisory', 'Mass concentration',
+    `${round(gravity.concentration, 2)} toward ${where}, on a scale where 0 is weight spread evenly around the form and 1 is all weight at a single point. For reference, a uniform half-annulus measures ${round(UNIFORM_HALF_ANNULUS_CONCENTRATION, 2)} — a shape comparison, not a pass mark. No calibrated threshold has been established for this measure.`,
+    { canon: ['SPEC.BALANCE', 'COMP.BALANCE', 'COMP.GRAVITY'], objects: [] });
 }
 
 /** EC-COMP-001 L4/L5 and spec: "Negative space remains intentional." */
 function restZonesPresent(bp) {
   const zones = restZones(bp);
-  const meaningful = zones.filter((z) => z.span >= ADVISORY_THRESHOLDS.minRestDegrees);
+  const meaningful = zones.filter((z) => z.span >= PROVISIONAL_THRESHOLDS.minRestDegrees);
   const total = zones.reduce((sum, z) => sum + z.span, 0);
-  const meta = { canon: ['COMP.L4', 'COMP.L5', 'COMP.L12', 'SPEC.NEGSPACE'], objects: [] };
+  const meta = provisional({ canon: ['COMP.L4', 'COMP.L5', 'COMP.L12', 'SPEC.NEGSPACE'], objects: [] });
 
-  if (meaningful.length && total >= ADVISORY_THRESHOLDS.minRestTotalDegrees) {
+  if (meaningful.length && total >= PROVISIONAL_THRESHOLDS.minRestTotalDegrees) {
     return pass('rest_zones_present', 'advisory', 'The composition breathes',
       `${round(total)}° of the form is left unworked across ${zones.length} rest ${zones.length === 1 ? 'zone' : 'zones'}, the largest ${round(Math.max(...zones.map((z) => z.span)))}°.`, meta);
   }
-  return fail('rest_zones_present', 'advisory', 'Not enough rest',
-    `Only ${round(total)}° of the form is left unworked${meaningful.length ? '' : `, with no single gap reaching ${ADVISORY_THRESHOLDS.minRestDegrees}°`}. EC-COMP-001 treats negative space as an active design element, and a design is not complete merely because every area is filled.`, meta);
+  return fail('rest_zones_present', 'advisory', 'Little rest left',
+    `Only ${round(total)}° of the form is left unworked${meaningful.length ? '' : `, with no single gap reaching the provisional ${PROVISIONAL_THRESHOLDS.minRestDegrees}° minimum`}. EC-COMP-001 treats negative space as an active design element, and a design is not complete merely because every area is filled. The degree figures are placeholders, not calibrated minimums.`, meta);
 }
 
 /** EC-GRN-001 GRN-B02: "Thin, readable gesture; never a hedge of greenery." */
 function sweepIsGesture(bp) {
   const sweep = getSweep(bp);
-  const meta = { canon: ['GRN.B02', 'GRN.L7', 'SPEC.SWEEP'], objects: sweep ? [sweep.id] : [] };
+  const meta = provisional({ canon: ['GRN.B02', 'GRN.L7', 'SPEC.SWEEP'], objects: sweep ? [sweep.id] : [] });
   if (!sweep) {
     return pass('sweep_is_gesture', 'advisory', 'Sweep width', 'No behaviour path to assess.', meta);
   }
 
-  const fraction = bandFraction(sweep, bp.base);
-  const { rMean } = baseRadii(bp.base);
-  const inches = (sweep.width_deg * Math.PI / 180) * rMean;
-  const limit = ADVISORY_THRESHOLDS.maxSweepBandFraction;
+  const fraction = clamp01(sweep.band_width_norm ?? 0);
+  const inches = bandWidthInches(sweep, bp.base);
+  const limit = PROVISIONAL_THRESHOLDS.maxSweepBandNorm;
 
   if (fraction <= limit) {
     return pass('sweep_is_gesture', 'advisory', 'Sweep reads as a gesture',
-      `Band is ${round(inches, 2)} in, ${round(fraction * 100, 0)}% of the ring width.`, meta);
+      `Band is ${round(inches, 2)} in across the ring, ${round(fraction * 100, 0)}% of its width.`, meta);
   }
   return fail('sweep_is_gesture', 'advisory', 'Sweep is thickening into a band',
-    `Band is ${round(inches, 2)} in, ${round(fraction * 100, 0)}% of the ring width — past the ${round(limit * 100, 0)}% point it stops being a guiding gesture and becomes a hedge of greenery.`, meta);
+    `Band is ${round(inches, 2)} in across the ring, ${round(fraction * 100, 0)}% of its width — over the provisional ${round(limit * 100, 0)}% mark, past which GRN-B02's "gesture, never a hedge" is at risk. The mark itself is a placeholder.`, meta);
 }
 
 /** Wireframe: the clearance belongs inside the anchor zone. */
 function clearanceWithinAnchor(bp) {
   const anchor = getAnchor(bp);
   const clearance = getClearance(bp);
-  const meta = { canon: ['SPEC.HARDWARE', 'SPEC.ANCHOR'], objects: [clearance?.id].filter(Boolean) };
+  const meta = provisional({ canon: ['SPEC.HARDWARE', 'SPEC.ANCHOR'], objects: [clearance?.id].filter(Boolean) });
   if (!anchor || !clearance) {
     return pass('clearance_within_anchor', 'advisory', 'Clearance placement', 'No anchor/clearance pair to assess.', meta);
   }
@@ -371,7 +426,7 @@ function clearanceWithinAnchor(bp) {
   }
 
   const remainingRatio = (anchorRange.span - clearRange.span) / anchorRange.span;
-  if (remainingRatio < ADVISORY_THRESHOLDS.minAnchorMassRatio) {
+  if (remainingRatio < PROVISIONAL_THRESHOLDS.minAnchorMassRatio) {
     return fail('clearance_within_anchor', 'advisory', 'Clearance has hollowed out the anchor',
       `Only ${round(remainingRatio * 100, 0)}% of the anchor arc still carries mass. The anchor stops reading as one dominant mass and starts reading as two small clusters.`, meta);
   }
@@ -459,15 +514,19 @@ export function validateBlueprint(bp) {
   const failedErrors = errors.filter((r) => r.status === 'fail');
   const failedAdvisories = advisories.filter((r) => r.status === 'fail');
 
+  const all = [...errors, ...advisories];
   return {
     ok: failedErrors.length === 0,
     errors,
     advisories,
-    results: [...errors, ...advisories],
+    results: all,
     counts: {
       errors: failedErrors.length,
       advisories: failedAdvisories.length,
-      passed: [...errors, ...advisories].filter((r) => r.status === 'pass').length,
+      passed: all.filter((r) => r.status === 'pass').length,
+      // Measurements without a calibrated predicate. Not passes, not failures.
+      metrics: all.filter((r) => r.status === 'metric').length,
+      provisional: all.filter((r) => r.calibration === 'provisional').length,
     },
   };
 }

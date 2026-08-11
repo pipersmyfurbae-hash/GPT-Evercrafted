@@ -8,7 +8,7 @@ import {
   complementRanges,
   degToClock,
   formatClock,
-  inchesToWidthDeg,
+  inchesToBandWidth,
   mergeRanges,
   normDeg,
   parseClock,
@@ -22,7 +22,8 @@ import {
   subtractArc,
   subtractArcs,
   sweepRibbonPath,
-  widthDegToInches,
+  bandWidthToInches,
+  legacyWidthDegToInches,
 } from '../src/core/geometry.js';
 
 const close = (a, b, tol = 1e-6) =>
@@ -210,10 +211,29 @@ test('rangeFromCenter centres a span', () => {
   close(range.span, 34);
 });
 
-test('sweep width converts between degrees and inches at the mean radius', () => {
-  // Default form: 24 in diameter, 5 in ring -> mean radius 9.5 in.
-  close(widthDegToInches(15, 9.5), 2.4870941840919194, 1e-9);
-  close(inchesToWidthDeg(widthDegToInches(15, 9.5), 9.5), 15, 1e-9);
+test('band width is a radial fraction of the ring, not an arc length', () => {
+  // Default form: 24 in diameter, 5 in ring.
+  close(bandWidthToInches(0.3, 5), 1.5);
+  close(bandWidthToInches(1, 5), 5);
+  close(bandWidthToInches(0, 5), 0);
+  close(inchesToBandWidth(bandWidthToInches(0.3, 5), 5), 0.3, 1e-12);
+
+  // Normalised, so a gesture keeps its proportion when the form is resized.
+  close(bandWidthToInches(0.3, 8) / 8, bandWidthToInches(0.3, 5) / 5, 1e-12);
+});
+
+test('band width clamps out-of-range input rather than escaping the ring', () => {
+  close(bandWidthToInches(3, 5), 5);
+  close(bandWidthToInches(-2, 5), 0);
+});
+
+test('the legacy 1.0.0 width conversion is kept only for migration', () => {
+  // Reproduces the rejected reading: an ARC LENGTH at the mean radius, which
+  // 1.0.0 wrongly used as radial thickness. See CONFLICTS.md C-04 (REVISED).
+  close(legacyWidthDegToInches(15, 9.5), 2.4870941840919194, 1e-9);
+  // It is an arc length, so it scales with radius, not with ring width — which
+  // is exactly why it could not have been a thickness.
+  close(legacyWidthDegToInches(15, 19), 2 * legacyWidthDegToInches(15, 9.5), 1e-9);
 });
 
 test('snapDeg snaps to half-hour increments', () => {

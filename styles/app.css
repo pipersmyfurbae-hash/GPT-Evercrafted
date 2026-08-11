@@ -1210,3 +1210,37 @@ select.field-input { appearance: none; cursor: pointer; }
   .panel { max-height: none; }
   .result-list { overflow: visible; }
 }
+
+/* ---------------- calibration honesty ---------------- */
+
+/*
+ * An uncalibrated number must never look like a design law. Every result that
+ * rests on a placeholder threshold or on the provisional presence model carries
+ * this tag, and measurements with no verdict render in a neutral colour rather
+ * than the pass green or the fail amber.
+ */
+.calibration-tag {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid rgba(109, 140, 166, 0.4);
+  color: var(--clearance);
+  background: rgba(109, 140, 166, 0.1);
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+.result-head { flex-wrap: wrap; }
+
+.result-mark.metric { color: var(--clearance); }
+.result-metric .result-title { color: var(--text-dim); font-weight: 400; }
+.result-metric .result-detail { color: var(--text-faint); }
+
+.metric-count { color: var(--clearance); }
+
+.block-title .calibration-tag { text-transform: uppercase; }
+.measured-note { margin: -4px 0 9px; }

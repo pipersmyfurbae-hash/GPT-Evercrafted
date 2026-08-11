@@ -16,7 +16,7 @@ import {
   angleOfPoint,
   complementRanges,
   subtractArc,
-  widthDegToInches,
+  bandWidthToInches,
 } from './geometry.js';
 import { baseRadii, byId, getAnchor, objectCenter, objectRange } from './schema.js';
 
@@ -109,38 +109,41 @@ export function parentOf(bp, obj) {
  * A proxy for how much visual mass an object carries.
  *
  * Pockets:        arc x radial depth x weight
- * Behaviour path: arc x band thickness (as a fraction of ring width)
- *                     x average taper x strength
+ * Behaviour path: arc x band width x average taper x strength
  * Clearance:      0 — it is a reserved void, not mass.
  *
  * Note the anchor's presence uses its FULL arc rather than arc-minus-clearance.
  * The clearance is reserved *for focal hardware* (bow, ribbon) which is itself
  * focal mass in the finished piece, so subtracting it would understate the
  * anchor and wrongly trip the dominance advisory.
+ *
+ * PROVISIONAL / UNCALIBRATED. This formula is an engineering model, not a
+ * calibrated measure of perceived visual weight. Every comparison built on it
+ * inherits that status. EC-GEO-001 / EC-CAL own the calibrated replacement.
  */
-export function presenceOf(obj, base) {
+export function presenceOf(obj) {
   if (!obj) return 0;
-  const { ringWidth, rMean } = baseRadii(base);
 
   if (obj.kind === 'pocket') {
     return clampSpan(obj.arc_deg) * Math.max(0, obj.depth_ratio ?? 0) * clamp01(obj.visual_weight ?? 0);
   }
 
   if (obj.kind === 'behavior_path') {
-    const thicknessIn = widthDegToInches(obj.width_deg ?? 0, rMean);
-    const fraction = ringWidth > 0 ? thicknessIn / ringWidth : 0;
     const averageTaper = 1 - clamp01(obj.taper ?? 0) / 2;
-    return clampSpan(obj.arc_deg) * fraction * averageTaper * clamp01(obj.strength ?? 0);
+    return (
+      clampSpan(obj.arc_deg) *
+      clamp01(obj.band_width_norm ?? 0) *
+      averageTaper *
+      clamp01(obj.strength ?? 0)
+    );
   }
 
   return 0;
 }
 
-/** Band thickness of a behaviour path as a fraction of the ring width. */
-export function bandFraction(obj, base) {
-  const { ringWidth, rMean } = baseRadii(base);
-  if (ringWidth <= 0) return 0;
-  return widthDegToInches(obj.width_deg ?? 0, rMean) / ringWidth;
+/** Radial thickness of a behaviour path's band, in inches. */
+export function bandWidthInches(obj, base) {
+  return bandWidthToInches(obj.band_width_norm ?? 0, baseRadii(base).ringWidth);
 }
 
 /* ------------------------------------------------------------------ *
@@ -165,7 +168,7 @@ export function compositionGravity(bp) {
   const contributions = [];
 
   for (const obj of bp.objects) {
-    const presence = presenceOf(obj, bp.base);
+    const presence = presenceOf(obj);
     if (presence <= 0) continue;
     const center = objectCenter(obj);
     const unit = polar(1, center);
@@ -289,7 +292,7 @@ export function clearanceRadii(obj, base) {
 
 /** Resolved inputs for drawing a behaviour path. */
 export function sweepGeometry(obj, base) {
-  const { rInner, rOuter, rMean } = baseRadii(base);
+  const { rInner, rOuter, ringWidth } = baseRadii(base);
   return {
     startDeg: normDeg(obj.start_deg),
     arcDeg: clampSpan(obj.arc_deg),
@@ -297,7 +300,40 @@ export function sweepGeometry(obj, base) {
     rOuter,
     radialPosition: clamp01(obj.radial_position ?? 0.5),
     curvature: obj.curvature ?? 0,
-    thicknessIn: widthDegToInches(obj.width_deg ?? 0, rMean),
+    thicknessIn: bandWidthToInches(obj.band_width_norm ?? 0, ringWidth),
     taper: clamp01(obj.taper ?? 0),
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Measurement namespace
+ * ------------------------------------------------------------------ */
+
+/**
+ * Everything measured from the geometry, in one place.
+ *
+ * ARCHITECTURAL RULE: intent and measurement never share a field. Authored
+ * intent is persisted on the blueprint (`gravity_intent`, and later
+ * `balance_intent`, `density_intent`, `movement_intent`). Measurements live
+ * here, are computed on demand, and are never written back to the blueprint —
+ * so an authored concept and a measured number can never be mistaken for two
+ * versions of the same truth.
+ *
+ * PROVISIONAL / UNCALIBRATED. These are engineering models, not calibrated
+ * measures of what an eye perceives. EC-GEO-001 and the calibration work own
+ * the measures that eventually replace them; until then nothing here carries a
+ * verdict, only a number.
+ */
+export function geometryMetrics(bp) {
+  const zones = restZones(bp);
+  return {
+    calibration: 'provisional',
+    composition_gravity: compositionGravity(bp),
+    rest: {
+      zones,
+      total_deg: zones.reduce((sum, zone) => sum + zone.span, 0),
+      largest_deg: zones.reduce((max, zone) => Math.max(max, zone.span), 0),
+    },
+    presence: Object.fromEntries(bp.objects.map((obj) => [obj.id, presenceOf(obj)])),
   };
 }

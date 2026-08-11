@@ -74,14 +74,14 @@ test('every transform and every piece of metadata survives a reload', () => {
 
   bp = setAnchorArc(bp, 'anchor-1', { startDeg: 195, arcDeg: 78 });
   bp = updateProperty(bp, 'sweep-1', 'curvature', -0.35);
-  bp = updateProperty(bp, 'sweep-1', 'width_deg', 11.5);
+  bp = updateProperty(bp, 'sweep-1', 'band_width_norm', 0.23);
   bp = updateProperty(bp, 'sweep-1', 'behavior_type', 'arching');
   bp = updateProperty(bp, 'echo-1', 'visual_weight', 0.38);
   bp = updateProperty(bp, 'echo-1', 'focal_repeat.color_note', 'oxidised copper');
   bp = updateProperty(bp, 'clearance-1', 'arc_deg', 26);
   bp = setLocked(bp, 'echo-1', true);
   bp = setAuthorNote(bp, 'anchor-1', 'Dropped it to 6:30 — the bow was fighting the hinge side.');
-  bp.composition_gravity.declared = 'lifted';
+  bp.gravity_intent.value = 'lifted';
   bp.emotional_profile.intent = 'A held breath before a door opens.';
 
   saveBlueprint(bp, 'Edited pass.');
@@ -90,7 +90,7 @@ test('every transform and every piece of metadata survives a reload', () => {
   close(getAnchor(reloaded).start_deg, 195);
   close(getAnchor(reloaded).arc_deg, 78);
   close(getSweep(reloaded).curvature, -0.35);
-  close(getSweep(reloaded).width_deg, 11.5);
+  close(getSweep(reloaded).band_width_norm, 0.23);
   assert.equal(getSweep(reloaded).behavior_type, 'arching');
   close(getEcho(reloaded).visual_weight, 0.38);
   assert.equal(getEcho(reloaded).focal_repeat.color_note, 'oxidised copper');
@@ -99,7 +99,7 @@ test('every transform and every piece of metadata survives a reload', () => {
     reloaded.objects.find((o) => o.id === 'anchor-1').explanation.author_note,
     /hinge side/,
   );
-  assert.equal(reloaded.composition_gravity.declared, 'lifted');
+  assert.equal(reloaded.gravity_intent.value, 'lifted');
   assert.equal(reloaded.emotional_profile.intent, 'A held breath before a door opens.');
   assert.equal(reloaded.name, 'Edited');
 });
@@ -186,11 +186,11 @@ test('a blueprint saved by an older build is migrated on load', () => {
   // Simulate a file written before view state / gravity existed.
   const raw = JSON.parse(globalThis.localStorage.getItem('evercrafted.placement-engine.library.v1'));
   delete raw['bp-old'].view;
-  delete raw['bp-old'].composition_gravity;
+  delete raw['bp-old'].gravity_intent;
   globalThis.localStorage.setItem('evercrafted.placement-engine.library.v1', JSON.stringify(raw));
 
   const loaded = loadBlueprint('bp-old');
   assert.ok(loaded.ok, loaded.errors.join(' '));
   assert.ok(loaded.blueprint.view);
-  assert.equal(loaded.blueprint.composition_gravity.declared, 'grounded');
+  assert.equal(loaded.blueprint.gravity_intent.value, 'grounded');
 });

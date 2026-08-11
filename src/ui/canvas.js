@@ -145,7 +145,7 @@ export function createCanvas({ mount, getState, onEdit, onSelect, onView, onHove
       if (node) scene.appendChild(node);
     }
 
-    if (view.gravity_marker) scene.appendChild(drawGravity(blueprint, rOuter));
+    if (view.gravity_marker) scene.appendChild(drawGravity(blueprint, rInner));
 
     const selected = selectedId ? byId(blueprint, selectedId) : null;
     if (selected && selected.visible !== false && !selected.locked) {
@@ -336,12 +336,15 @@ export function createCanvas({ mount, getState, onEdit, onSelect, onView, onHove
     return group;
   }
 
-  function drawGravity(bp, rOuter) {
+  function drawGravity(bp, rInner) {
     const gravity = compositionGravity(bp);
     const group = s('g', { class: 'layer layer-gravity', 'pointer-events': 'none' });
     if (gravity.total <= 0) return group;
 
-    const point = polar(gravity.concentration * rOuter, gravity.deg);
+    // Plotted inside the open centre rather than out on the ring: concentration
+    // is still read as distance from the middle, but the marker never lands on
+    // top of the mass it is describing.
+    const point = polar(gravity.concentration * Math.max(1, rInner - 1.2), gravity.deg);
     group.appendChild(s('line', { class: 'gravity-line', x1: 0, y1: 0, x2: point.x, y2: point.y }));
     group.appendChild(s('circle', { class: 'gravity-halo', cx: point.x, cy: point.y, r: 0.85 }));
     group.appendChild(s('circle', { class: 'gravity-dot', cx: point.x, cy: point.y, r: 0.28 }));

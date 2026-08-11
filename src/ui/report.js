@@ -25,6 +25,9 @@ export function createReportPanel({ mount, getState, onSelect }) {
         `${report.counts.passed} passing`,
         report.counts.advisories
           ? h('span', { class: 'advisory-count', text: ` · ${report.counts.advisories} advisory` })
+          : null,
+        report.counts.metrics
+          ? h('span', { class: 'metric-count', text: ` · ${report.counts.metrics} measured` })
           : null));
 
     replace(mount,
@@ -33,7 +36,7 @@ export function createReportPanel({ mount, getState, onSelect }) {
         summary),
       h('div', { class: 'report-columns' },
         column('Blocking — ticket §8', report.errors, 'error', onSelect),
-        column('Advisory — spec & canon', report.advisories, 'advisory', onSelect),
+        column('Advisory & measured — spec & canon', report.advisories, 'advisory', onSelect),
         h('div', { class: 'report-column report-render' },
           h('h4', { class: 'report-column-title', text: 'Render preview' }),
           h('div', { class: 'render-slot' },
@@ -43,6 +46,8 @@ export function createReportPanel({ mount, getState, onSelect }) {
 
   return { render };
 }
+
+const MARKS = { pass: '✓', fail: '!', metric: '·' };
 
 function column(title, results, level, onSelect) {
   const failures = results.filter((r) => r.status === 'fail');
@@ -55,8 +60,16 @@ function column(title, results, level, onSelect) {
     h('ul', { class: 'result-list' },
       ...results.map((result) => h('li', { class: `result result-${result.status}` },
         h('div', { class: 'result-head' },
-          h('span', { class: `result-mark ${result.status}` , text: result.status === 'pass' ? '✓' : '!' }),
-          h('span', { class: 'result-title', text: result.title })),
+          h('span', { class: `result-mark ${result.status}`, text: MARKS[result.status] ?? '·' }),
+          h('span', { class: 'result-title', text: result.title }),
+          // An uncalibrated number must never read as a design law.
+          result.calibration === 'provisional'
+            ? h('span', {
+                class: 'calibration-tag',
+                title: 'This rests on an uncalibrated threshold or model. It is reported, not established. EC-GEO-001 / EC-CAL own the calibrated predicate.',
+                text: 'provisional',
+              })
+            : null),
         h('p', { class: 'result-detail', text: result.detail }),
         result.objects?.length
           ? h('div', { class: 'result-objects' }, ...result.objects.map((id) =>

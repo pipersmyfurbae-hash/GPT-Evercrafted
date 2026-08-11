@@ -10,9 +10,9 @@
  */
 
 import { h, replace } from './dom.js';
-import { formatClock, parseClock, widthDegToInches } from '../core/geometry.js';
+import { formatClock, parseClock, bandWidthToInches } from '../core/geometry.js';
 import {
-  GRAVITY_MODES,
+  GRAVITY_INTENTS,
   LIFECYCLE_STAGES,
   LIFECYCLE_STAGES_SPRINT1,
   PROPERTY_SPECS,
@@ -22,7 +22,7 @@ import {
   objectCenter,
   objectRange,
 } from '../core/schema.js';
-import { compositionGravity, presenceOf, readGravityDirection, restZones } from '../core/analysis.js';
+import { geometryMetrics, presenceOf, readGravityDirection } from '../core/analysis.js';
 import { describeLink, explainObject } from '../core/explain.js';
 
 export function createInspector({
@@ -59,7 +59,7 @@ export function createInspector({
   function renderObjectInspector(bp, obj) {
     const explanation = explainObject(bp, obj);
     const range = objectRange(obj);
-    const presence = presenceOf(obj, bp.base);
+    const presence = presenceOf(obj);
 
     const header = h('header', { class: 'inspector-header' },
       h('div', { class: 'inspector-eyebrow' },
@@ -230,8 +230,8 @@ export function createInspector({
 
     /* Numeric kinds: slider plus a typed value, kept in sync. */
     const suffix = spec.kind === 'deg' ? '°' : spec.unit ? ` ${spec.unit}` : '';
-    const display = spec.kind === 'width'
-      ? `${widthDegToInches(Number(value), baseRadii(bp.base).rMean).toFixed(2)} in`
+    const display = spec.kind === 'band_width'
+      ? `${bandWidthToInches(Number(value), baseRadii(bp.base).ringWidth).toFixed(2)} in`
       : `${Number(value ?? 0).toFixed(spec.step < 1 ? 2 : 0)}${suffix}`;
 
     return h('div', { class: 'field' },
@@ -247,17 +247,18 @@ export function createInspector({
           min: spec.min, max: spec.max, step: spec.step, value: Number(value ?? 0),
           onChange: (event) => onProperty(obj.id, spec.key, Number(event.target.value)),
         })),
-      spec.kind === 'width'
-        ? h('span', { class: 'field-hint', text: `${Number(value ?? 0).toFixed(1)}° at the ring mean radius. ${spec.hint ?? ''}` })
+      spec.kind === 'band_width'
+        ? h('span', { class: 'field-hint', text: `${Math.round(Number(value ?? 0) * 100)}% of the ${baseRadii(bp.base).ringWidth.toFixed(1)} in base band. ${spec.hint ?? ''}` })
         : hint);
   }
 
   /* ---------------- blueprint inspector ---------------- */
 
   function renderBlueprintInspector(bp, baseSelected) {
-    const gravity = compositionGravity(bp);
-    const zones = restZones(bp);
-    const restDegrees = zones.reduce((sum, z) => sum + z.span, 0);
+    const metrics = geometryMetrics(bp);
+    const gravity = metrics.composition_gravity;
+    const zones = metrics.rest.zones;
+    const restDegrees = metrics.rest.total_deg;
     const { rInner, rOuter, rMean } = baseRadii(bp.base);
 
     const header = h('header', { class: 'inspector-header' },
@@ -302,13 +303,13 @@ export function createInspector({
           onChange: (event) => onBlueprintField('emotional_profile.intent', event.target.value),
         })),
       h('label', { class: 'field' },
-        h('span', { class: 'field-label', text: 'Declared composition gravity' }),
+        h('span', { class: 'field-label', text: 'Gravity intent' }),
         h('select', {
           class: 'field-input',
-          onChange: (event) => onBlueprintField('composition_gravity.declared', event.target.value),
-        }, ...GRAVITY_MODES.map((mode) =>
-          h('option', { value: mode, selected: mode === bp.composition_gravity?.declared, text: mode }))),
-        h('span', { class: 'field-hint', text: 'Authored intent. The canon documents disagree on whether gravity leads or follows placement — see CONFLICTS.md C-01 — so this is held next to the computed reading rather than enforced against it.' })),
+          onChange: (event) => onBlueprintField('gravity_intent.value', event.target.value),
+        }, ...GRAVITY_INTENTS.map((mode) =>
+          h('option', { value: mode, selected: mode === bp.gravity_intent?.value, text: mode }))),
+        h('span', { class: 'field-hint', text: 'What this composition is meant to feel like. Authored, never inferred — the measured centre of mass is reported separately under Measured, and the two are never reconciled into one number.' })),
       h('label', { class: 'field' },
         h('span', { class: 'field-label', text: 'Lifecycle status' }),
         h('select', {
@@ -325,9 +326,11 @@ export function createInspector({
           })))));
 
     const computed = h('section', { class: 'panel-block' },
-      h('h3', { class: 'block-title' }, 'Computed'),
+      h('h3', { class: 'block-title' }, 'Measured',
+        h('span', { class: 'calibration-tag', title: 'These are engineering models, not calibrated measures. EC-GEO-001 owns the calibrated replacements.', text: 'provisional' })),
+      h('p', { class: 'field-hint measured-note', text: 'Measurements taken from the geometry. They describe what is drawn; they do not judge it.' }),
       h('dl', { class: 'fact-grid fact-grid-wide' },
-        fact('Gravity reads', readGravityDirection(gravity)),
+        fact('Mass sits', readGravityDirection(gravity)),
         fact('Concentration', gravity.concentration.toFixed(2)),
         fact('Total presence', gravity.total.toFixed(1)),
         fact('Negative space', `${Math.round(restDegrees)}° in ${zones.length}`)),

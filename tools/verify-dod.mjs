@@ -125,9 +125,26 @@ try {
   check('sweep travel is editable', (await meta('primary_sweep')).trim() !== sweepBefore,
     `${sweepBefore} → ${(await meta('primary_sweep')).trim()}`);
 
-  const widthLabel = await page.locator('#prop-sweep-1-width_deg').evaluate((el) =>
+  // C-04 (REVISED): thickness is radial and independent of travel.
+  const widthLabel = await page.locator('#prop-sweep-1-band_width_norm').evaluate((el) =>
     el.closest('.field').querySelector('.field-value').textContent);
-  check('sweep width shows inches alongside the spec degrees', widthLabel.includes('in'), widthLabel);
+  check('sweep band width reads as a radial thickness in inches', widthLabel.includes('in'), widthLabel);
+
+  const travelAfterWidening = (await meta('primary_sweep')).trim();
+  await page.locator('#prop-sweep-1-band_width_norm').fill('0.5');
+  await page.locator('#prop-sweep-1-band_width_norm').dispatchEvent('change');
+  await page.waitForTimeout(250);
+  check('changing thickness does not change travel',
+    (await meta('primary_sweep')).trim() === travelAfterWidening, travelAfterWidening);
+
+  const widerLabel = await page.locator('#prop-sweep-1-band_width_norm').evaluate((el) =>
+    el.closest('.field').querySelector('.field-value').textContent);
+  check('thickness is a fraction of the ring, not an arc length',
+    widerLabel.trim().startsWith('2.50'), `${widthLabel.trim()} -> ${widerLabel.trim()} of a 5 in ring`);
+
+  await page.locator('#prop-sweep-1-band_width_norm').fill('0.3');
+  await page.locator('#prop-sweep-1-band_width_norm').dispatchEvent('change');
+  await page.waitForTimeout(200);
 
   console.log('\nDoD 5 — edit the 5 o’clock echo');
   await page.locator('.layer-secondary_echo').click();
@@ -203,6 +220,24 @@ try {
   check('ticket §8 runs exactly five blocking validators', validation.blocking === 5);
   check('spec-derived advisories run separately', validation.advisory === 7);
   check('the saved composition is valid', validation.verdict === 'Valid', validation.verdict);
+
+  // C-07 (REVISED): uncalibrated numbers must never read as design law.
+  const calibration = await page.evaluate(() => {
+    const concentration = [...document.querySelectorAll('.report-advisory .result')]
+      .find((n) => n.querySelector('.result-title')?.textContent === 'Mass concentration');
+    return {
+      tags: document.querySelectorAll('.report-columns .calibration-tag').length,
+      metrics: document.querySelectorAll('.report-advisory .result-metric').length,
+      concentrationDetail: concentration?.querySelector('.result-detail')?.textContent ?? '',
+      concentrationIsMetric: Boolean(concentration?.classList.contains('result-metric')),
+    };
+  });
+  check('provisional results are visibly tagged', calibration.tags >= 6, `${calibration.tags} tagged`);
+  check('mass concentration is reported as a measurement, not a verdict',
+    calibration.concentrationIsMetric && calibration.metrics >= 1);
+  check('the engine no longer claims a composition is "resolved"',
+    !/\bresolved\b/i.test(calibration.concentrationDetail),
+    calibration.concentrationDetail.slice(0, 90) + '…');
 
   console.log(`\nJS errors: ${jsErrors.length}`);
   jsErrors.forEach((error) => console.log(`  ! ${error}`));

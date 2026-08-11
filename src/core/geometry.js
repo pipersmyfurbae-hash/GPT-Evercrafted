@@ -310,20 +310,37 @@ export function annulusSectorPath(rInner, rOuter, range, cx = 0, cy = 0) {
 }
 
 /**
- * Convert the spec's sweep width (given in degrees) into inches of band
- * thickness at the ring's mean radius.
+ * Radial thickness of a behaviour path's band, in inches.
  *
- * The spec gives "approximately 15 degrees" as a width target without naming an
- * axis; this is the interpretation Sprint 1 adopted. See CONFLICTS.md C-04 —
- * this is the single place to change if the ruling differs.
+ * `band_width_norm` is the fraction of the wreath base's usable radial width the
+ * band occupies: 0.3 means the band is 30% as thick as the ring is wide. Because
+ * it is normalised, a gesture keeps its proportion when the form is resized.
+ *
+ * This measures ACROSS the ring. Travel around the ring is `arc_deg`, and the
+ * two never mix. See CONFLICTS.md C-04.
  */
-export function widthDegToInches(widthDeg, meanRadiusIn) {
-  return (Math.max(0, widthDeg) * Math.PI / 180) * meanRadiusIn;
+export function bandWidthToInches(bandWidthNorm, ringWidthIn) {
+  return clamp01(bandWidthNorm) * Math.max(0, ringWidthIn);
 }
 
-export function inchesToWidthDeg(inches, meanRadiusIn) {
-  if (meanRadiusIn <= 0) return 0;
-  return (Math.max(0, inches) / meanRadiusIn) * (180 / Math.PI);
+export function inchesToBandWidth(inches, ringWidthIn) {
+  if (ringWidthIn <= 0) return 0;
+  return clamp01(Math.max(0, inches) / ringWidthIn);
+}
+
+/**
+ * Compatibility shim for schema 1.0.0 only.
+ *
+ * 1.0.0 stored the sweep width as `width_deg` and converted it with
+ * `arc_degrees x mean_radius` — an arc length ALONG the ring, wrongly used as
+ * thickness ACROSS it. That interpretation was rejected (CONFLICTS.md C-04,
+ * REVISED). This reproduces the old arithmetic so blueprints saved under 1.0.0
+ * migrate to the band-width model looking exactly as their author left them.
+ *
+ * Migration only. Never call this from live geometry.
+ */
+export function legacyWidthDegToInches(widthDeg, meanRadiusIn) {
+  return (Math.max(0, widthDeg) * Math.PI) / 180 * meanRadiusIn;
 }
 
 /**
