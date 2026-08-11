@@ -1,0 +1,14 @@
+{
+  "name": "evercrafted-placement-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Evercrafted Placement Engine — Sprint 1: Composition Canvas Foundation",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node tools/serve.js",
+    "test": "node --test \"tests/*.test.js\""
+  }
+}
