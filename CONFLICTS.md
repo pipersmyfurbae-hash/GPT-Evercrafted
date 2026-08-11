@@ -455,6 +455,23 @@ thickness, per C-04. The number 0.30 itself has not been earned, and nothing val
   choices. EC-GEO/EC-CAL may supply calibrated starting values; until then they stay as defaults and
   never become validators.
 
+## Testing principle — exercise the failure path, not just the happy one
+
+Recorded 2026-08-11, from a real miss during the two-axis refinement.
+
+A runner field was renamed and one consumer was missed, so an invalid blueprint rendered
+"undefined blocking" where the verdict chip should have shown a count. Every test and every browser
+check passed, because all of them asserted that *valid* input looked valid.
+
+The defect was not the rename. It was that the suite verified the **happy-path contract** and never
+the **reporting contract under an invalid state**. A broken failure path is invisible exactly while
+nothing is failing — which is most of the time, and certainly during a final review pass.
+
+The rule this leaves behind: **whenever a check reports on a bad state, a test must drive the bad
+state.** Fixing the string alone would have left the gap open for the next rename. The browser
+walkthrough now deliberately obstructs the hardware clearance and asserts the chip reports a real
+count; `tests/engine.test.js` pins the exact count keys the UI reads.
+
 ## Sprint 1 status
 
 **ACCEPTED as the Sprint 1 baseline, 2026-08-11.** Schema 1.1.0 accepted. `band_width_norm` kept.

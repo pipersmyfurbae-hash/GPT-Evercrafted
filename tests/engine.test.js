@@ -774,10 +774,25 @@ test('PROVISIONAL_THRESHOLDS holds only uncalibrated placeholders', () => {
   ]);
 });
 
+/* ================================================================== *
+ * Reporting contract under failure
+ *
+ * These exist because of a real miss, and the lesson is worth more than the
+ * bug was. A runner field was renamed (`counts.errors` -> `counts.blocking`)
+ * and one consumer was missed, so an invalid blueprint rendered "undefined
+ * blocking" in the verdict chip.
+ *
+ * The failure was NOT the rename. It was that the suite verified the
+ * happy-path contract and never the REPORTING contract under an invalid
+ * state — and a broken failure path is invisible precisely while nothing is
+ * failing, which is most of the time.
+ *
+ * So: whenever a check reports on a bad state, exercise the bad state. Do not
+ * assert only that valid input looks valid.
+ * ================================================================== */
+
 test('the report exposes exactly the count keys the UI reads', () => {
-  // A rename in the runner that misses a consumer renders "undefined blocking"
-  // in the verdict chip — invisible while everything is valid, which is exactly
-  // when nobody is looking. This pins the contract between the two.
+  // Pins the contract between the runner and its consumers.
   const report = validateBlueprint(fresh());
   assert.deepEqual(Object.keys(report.counts).sort(), [
     'advisories',
