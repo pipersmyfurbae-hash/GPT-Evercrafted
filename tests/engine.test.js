@@ -773,3 +773,30 @@ test('PROVISIONAL_THRESHOLDS holds only uncalibrated placeholders', () => {
     'minRestTotalDegrees',
   ]);
 });
+
+test('the report exposes exactly the count keys the UI reads', () => {
+  // A rename in the runner that misses a consumer renders "undefined blocking"
+  // in the verdict chip — invisible while everything is valid, which is exactly
+  // when nobody is looking. This pins the contract between the two.
+  const report = validateBlueprint(fresh());
+  assert.deepEqual(Object.keys(report.counts).sort(), [
+    'advisories',
+    'blocking',
+    'metrics',
+    'passed',
+    'provisional',
+  ]);
+  for (const [key, value] of Object.entries(report.counts)) {
+    assert.ok(Number.isInteger(value), `counts.${key} is ${value}`);
+  }
+});
+
+test('an invalid blueprint reports a usable blocking count', () => {
+  const bp = setLinkedPosition(fresh(), 'echo-1', 240); // echo onto the bow zone
+  const report = validateBlueprint(bp);
+
+  assert.equal(report.ok, false);
+  assert.equal(report.counts.blocking, 1);
+  // The string the verdict chip actually builds.
+  assert.equal(`${report.counts.blocking} blocking`, '1 blocking');
+});

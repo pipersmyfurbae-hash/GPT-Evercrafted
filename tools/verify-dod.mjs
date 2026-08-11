@@ -249,6 +249,26 @@ try {
     authority.echoIsBlockingAndProvisional && /ticket §8/.test(authority.echoReason),
     authority.echoReason.slice(0, 100) + '…');
 
+  // The invalid state needs exercising too: a rename that misses a consumer
+  // here is invisible while everything passes, which is when nobody is looking.
+  console.log('\nInvalid state');
+  await page.locator('.layer-secondary_echo').click();
+  await page.waitForTimeout(200);
+  await page.locator('#prop-echo-1-link-offset_deg').fill('0');
+  await page.locator('#prop-echo-1-link-offset_deg').dispatchEvent('change');
+  await page.waitForTimeout(300);
+
+  const invalid = await page.evaluate(() => ({
+    verdict: document.querySelector('.verdict')?.textContent ?? '',
+    blocked: Boolean(document.querySelector('.verdict.is-blocked')),
+    failures: [...document.querySelectorAll('.report-blocking .result-fail .result-title')]
+      .map((n) => n.textContent),
+  }));
+  check('an obstruction blocks the save', invalid.blocked && invalid.failures.length === 1,
+    invalid.failures.join(', '));
+  check('the verdict chip reports a real count', /^\d+ blocking$/.test(invalid.verdict.trim()),
+    invalid.verdict.trim());
+
   console.log(`\nJS errors: ${jsErrors.length}`);
   jsErrors.forEach((error) => console.log(`  ! ${error}`));
   if (jsErrors.length) throw new Error('the page logged JavaScript errors');

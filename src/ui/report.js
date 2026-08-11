@@ -19,7 +19,7 @@ export function createReportPanel({ mount, getState, onSelect }) {
     const summary = h('div', { class: 'report-summary' },
       h('span', {
         class: `verdict ${report.ok ? 'is-ok' : 'is-blocked'}`,
-        text: report.ok ? 'Valid' : `${report.counts.errors} blocking`,
+        text: report.ok ? 'Valid' : `${report.counts.blocking} blocking`,
       }),
       h('span', { class: 'report-counts' },
         `${report.counts.passed} passing`,
