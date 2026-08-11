@@ -27,6 +27,8 @@ import {
   validateBlueprint,
   PROVISIONAL_THRESHOLDS,
   UNIFORM_HALF_ANNULUS_CONCENTRATION,
+  ENFORCEMENT,
+  CONFIDENCE,
 } from '../src/core/validate.js';
 import {
   hydrate,
@@ -139,7 +141,7 @@ test('geometry metrics namespace keeps measurement out of the blueprint', () => 
   const bp = fresh();
   const metrics = geometryMetrics(bp);
 
-  assert.equal(metrics.calibration, 'provisional');
+  assert.equal(metrics.confidence, 'provisional');
   assert.ok(metrics.composition_gravity.concentration > 0);
   close(metrics.rest.total_deg, 131);
   assert.equal(Object.keys(metrics.presence).length, 4);
@@ -364,9 +366,9 @@ test('shortReason produces a one-line summary for every object', () => {
 test('the default composition passes every blocking validator and every advisory', () => {
   const report = validateBlueprint(fresh());
   const failures = report.results.filter((r) => r.status === 'fail');
-  assert.deepEqual(failures.map((f) => `${f.level}:${f.id} — ${f.detail}`), []);
+  assert.deepEqual(failures.map((f) => `${f.enforcement}:${f.id} — ${f.detail}`), []);
   assert.ok(report.ok);
-  assert.equal(report.counts.errors, 0);
+  assert.equal(report.counts.blocking, 0);
   assert.equal(report.counts.advisories, 0);
 });
 
@@ -374,12 +376,12 @@ test('every validator result carries a canon citation and readable detail', () =
   for (const result of validateBlueprint(fresh()).results) {
     assert.ok(result.canon.length > 0, `${result.id} cites no canon`);
     assert.ok(result.detail.length > 20, `${result.id} has a thin detail line`);
-    assert.ok(['error', 'advisory'].includes(result.level));
   }
 });
 
 test('ticket §8 blocking validators are exactly the five specified', () => {
-  const ids = validateBlueprint(fresh()).errors.map((r) => r.id).sort();
+  const ids = validateBlueprint(fresh()).blocking.map((r) => r.id).sort();
+  assert.ok(validateBlueprint(fresh()).blocking.every((r) => r.enforcement === ENFORCEMENT.BLOCKING));
   assert.deepEqual(ids, [
     'echo_smaller_than_anchor',
     'explanations_present',
@@ -394,7 +396,7 @@ test('a second primary anchor is a blocking error', () => {
   bp.objects.push({ ...getAnchor(bp), id: 'anchor-2' });
   const report = validateBlueprint(bp);
   assert.ok(!report.ok);
-  const result = report.errors.find((r) => r.id === 'single_primary_anchor');
+  const result = report.blocking.find((r) => r.id === 'single_primary_anchor');
   assert.equal(result.status, 'fail');
   assert.match(result.detail, /2 primary anchors/);
 });
@@ -405,18 +407,18 @@ test('an echo that outweighs the anchor is a blocking error', () => {
   const report = validateBlueprint(heavier);
 
   assert.ok(!report.ok);
-  assert.equal(report.errors.find((r) => r.id === 'echo_smaller_than_anchor').status, 'fail');
+  assert.equal(report.blocking.find((r) => r.id === 'echo_smaller_than_anchor').status, 'fail');
 });
 
 test('an echo approaching parity trips the advisory before the error', () => {
   // presence 34 * 0.7 * w vs anchor 60 -> w = 0.8 gives ~32%, w must go high to rival.
   const bp = updateProperty(updateProperty(fresh(), 'echo-1', 'arc_deg', 90), 'echo-1', 'visual_weight', 0.85);
   const report = validateBlueprint(bp);
-  const result = report.advisories.find((r) => r.id === 'echo_not_rivalling');
+  const result = report.advisory.find((r) => r.id === 'echo_not_rivalling');
 
   assert.ok(report.ok, 'should still be saveable');
   assert.equal(result.status, 'fail');
-  assert.equal(result.calibration, 'provisional');
+  assert.equal(result.confidence, 'provisional');
   assert.match(result.detail, /placeholder/);
 });
 
@@ -426,9 +428,9 @@ test('a sweep heavier than the anchor trips the dominance advisory the ticket wo
   bp = updateProperty(bp, 'sweep-1', 'arc_deg', 300);
 
   const report = validateBlueprint(bp);
-  assert.equal(report.advisories.find((r) => r.id === 'anchor_dominant').status, 'fail');
+  assert.equal(report.advisory.find((r) => r.id === 'anchor_dominant').status, 'fail');
   // The ticket's own echo-only check still passes, which is the point.
-  assert.equal(report.errors.find((r) => r.id === 'echo_smaller_than_anchor').status, 'pass');
+  assert.equal(report.blocking.find((r) => r.id === 'echo_smaller_than_anchor').status, 'pass');
 });
 
 test('the echo obstructing the clearance is a blocking error', () => {
@@ -437,7 +439,7 @@ test('the echo obstructing the clearance is a blocking error', () => {
   const report = validateBlueprint(bp);
 
   assert.ok(!report.ok);
-  const result = report.errors.find((r) => r.id === 'hardware_clearance_unobstructed');
+  const result = report.blocking.find((r) => r.id === 'hardware_clearance_unobstructed');
   assert.equal(result.status, 'fail');
   assert.match(result.detail, /Secondary echo/);
 });
@@ -445,7 +447,7 @@ test('the echo obstructing the clearance is a blocking error', () => {
 test('the anchor itself never counts as obstructing its own clearance', () => {
   // Widening the anchor keeps the clearance inside it and must stay valid.
   const bp = setAnchorArc(fresh(), 'anchor-1', { arcDeg: 120 });
-  const result = validateBlueprint(bp).errors.find((r) => r.id === 'hardware_clearance_unobstructed');
+  const result = validateBlueprint(bp).blocking.find((r) => r.id === 'hardware_clearance_unobstructed');
   assert.equal(result.status, 'pass');
 });
 
@@ -461,7 +463,7 @@ test('a sweep crossing the clearance at a different depth is not an obstruction'
   bp = setLocked(bp, 'sweep-1', true);
   bp.objects.find((o) => o.id === 'sweep-1').start_deg = 200;
 
-  const result = validateBlueprint(bp).errors.find((r) => r.id === 'hardware_clearance_unobstructed');
+  const result = validateBlueprint(bp).blocking.find((r) => r.id === 'hardware_clearance_unobstructed');
   assert.equal(result.status, 'pass', result.detail);
 });
 
@@ -472,8 +474,8 @@ test('a clearance dragged out of the anchor is an advisory, not a blocker', () =
   const report = validateBlueprint(bp);
 
   assert.ok(report.ok, 'should still save');
-  assert.equal(report.errors.find((r) => r.id === 'hardware_clearance_unobstructed').status, 'pass');
-  assert.equal(report.advisories.find((r) => r.id === 'clearance_within_anchor').status, 'fail');
+  assert.equal(report.blocking.find((r) => r.id === 'hardware_clearance_unobstructed').status, 'pass');
+  assert.equal(report.advisory.find((r) => r.id === 'clearance_within_anchor').status, 'fail');
 });
 
 test('a clearance dragged under the sweep IS a blocking obstruction', () => {
@@ -482,29 +484,29 @@ test('a clearance dragged under the sweep IS a blocking obstruction', () => {
   const report = validateBlueprint(bp);
 
   assert.ok(!report.ok);
-  const result = report.errors.find((r) => r.id === 'hardware_clearance_unobstructed');
+  const result = report.blocking.find((r) => r.id === 'hardware_clearance_unobstructed');
   assert.equal(result.status, 'fail');
   assert.match(result.detail, /Primary sweep/);
 });
 
 test('a clearance that hollows out the anchor is flagged', () => {
   const bp = updateProperty(fresh(), 'clearance-1', 'arc_deg', 50);
-  const result = validateBlueprint(bp).advisories.find((r) => r.id === 'clearance_within_anchor');
+  const result = validateBlueprint(bp).advisory.find((r) => r.id === 'clearance_within_anchor');
   assert.equal(result.status, 'fail');
   assert.match(result.detail, /hollow|two small clusters/i);
 });
 
 test('a fattened sweep trips the hedge advisory from GRN-B02', () => {
   const bp = updateProperty(fresh(), 'sweep-1', 'band_width_norm', 0.8);
-  const result = validateBlueprint(bp).advisories.find((r) => r.id === 'sweep_is_gesture');
+  const result = validateBlueprint(bp).advisory.find((r) => r.id === 'sweep_is_gesture');
   assert.equal(result.status, 'fail');
   assert.match(result.detail, /gesture, never a hedge/);
-  assert.equal(result.calibration, 'provisional');
+  assert.equal(result.confidence, 'provisional');
 });
 
 test('a composition with no breathing room is flagged', () => {
   const bp = updateProperty(fresh(), 'sweep-1', 'arc_deg', 300);
-  const result = validateBlueprint(bp).advisories.find((r) => r.id === 'rest_zones_present');
+  const result = validateBlueprint(bp).advisory.find((r) => r.id === 'rest_zones_present');
   assert.equal(result.status, 'fail');
 });
 
@@ -526,7 +528,7 @@ test('a missing explanation is caught', () => {
 
   const report = validateBlueprint(bp);
   assert.ok(!report.ok);
-  assert.equal(report.errors.find((r) => r.id === 'explanations_present').status, 'fail');
+  assert.equal(report.blocking.find((r) => r.id === 'explanations_present').status, 'fail');
 });
 
 test('schema violations surface as a blocking error', () => {
@@ -534,7 +536,7 @@ test('schema violations surface as a blocking error', () => {
   bp.objects[0].arc_deg = 'wide';
   const report = validateBlueprint(bp);
   assert.ok(!report.ok);
-  assert.match(report.errors.find((r) => r.id === 'schema_valid').detail, /non-numeric/);
+  assert.match(report.blocking.find((r) => r.id === 'schema_valid').detail, /non-numeric/);
 });
 
 test('validateSchema rejects a dangling parent link and a duplicate id', () => {
@@ -678,19 +680,55 @@ test('the current schema rejects a resurrected composition_gravity field', () =>
   assert.match(errors.join(' '), /Intent is gravity_intent/);
 });
 
-test('every validator result declares whether it rests on a calibrated rule', () => {
+test('every result declares enforcement authority and measurement confidence separately', () => {
   for (const result of validateBlueprint(fresh()).results) {
-    assert.ok(['structural', 'provisional'].includes(result.calibration),
-      `${result.id} has calibration "${result.calibration}"`);
-    assert.ok(['pass', 'fail', 'metric'].includes(result.status));
+    assert.ok(Object.values(ENFORCEMENT).includes(result.enforcement),
+      `${result.id} has enforcement "${result.enforcement}"`);
+    assert.ok(Object.values(CONFIDENCE).includes(result.confidence),
+      `${result.id} has confidence "${result.confidence}"`);
+    assert.ok(['pass', 'fail', 'measured'].includes(result.status));
+    assert.ok(result.enforcement_reason?.length > 30,
+      `${result.id} does not say why it has the authority it has`);
   }
 });
 
-test('mass concentration is reported as a measurement, never as a verdict', () => {
-  const result = validateBlueprint(fresh()).advisories.find((r) => r.id === 'balance_concentration');
+test('the two axes are independent: a check can block on a provisional basis', () => {
+  const result = validateBlueprint(fresh()).blocking.find((r) => r.id === 'echo_smaller_than_anchor');
 
-  assert.equal(result.status, 'metric', 'must not claim pass or fail');
-  assert.equal(result.calibration, 'provisional');
+  // Blocking authority comes from the sprint contract...
+  assert.equal(result.enforcement, ENFORCEMENT.BLOCKING);
+  // ...while its basis is an uncalibrated model.
+  assert.equal(result.confidence, CONFIDENCE.PROVISIONAL);
+  // And the model records why, so nobody has to ask.
+  assert.match(result.enforcement_reason, /ticket §8/);
+  assert.match(result.enforcement_reason, /not a perceptual truth claim/);
+});
+
+test('nothing claims calibrated confidence yet', () => {
+  const calibrated = validateBlueprint(fresh()).results.filter(
+    (r) => r.confidence === CONFIDENCE.CALIBRATED,
+  );
+  assert.deepEqual(calibrated, [], 'EC-GEO-001 / EC-CAL have not supplied any calibrated predicate');
+});
+
+test('metrics enforce nothing and never claim pass or fail', () => {
+  const report = validateBlueprint(fresh());
+  assert.ok(report.metrics.length > 0);
+  for (const result of report.metrics) {
+    assert.equal(result.enforcement, ENFORCEMENT.METRIC);
+    assert.equal(result.status, 'measured');
+    assert.equal(result.confidence, CONFIDENCE.PROVISIONAL);
+  }
+  // A metric is not counted as an advisory that happened to pass.
+  assert.ok(report.advisory.every((r) => r.enforcement === ENFORCEMENT.ADVISORY));
+});
+
+test('mass concentration is reported as a measurement, never as a verdict', () => {
+  const result = validateBlueprint(fresh()).metrics.find((r) => r.id === 'balance_concentration');
+
+  assert.equal(result.status, 'measured', 'must not claim pass or fail');
+  assert.equal(result.enforcement, ENFORCEMENT.METRIC);
+  assert.equal(result.confidence, 'provisional');
   // The rejected language must not reappear.
   assert.doesNotMatch(result.detail, /resolved|unresolved|half-moon/i);
   assert.match(result.detail, /No calibrated threshold/);
@@ -699,7 +737,7 @@ test('mass concentration is reported as a measurement, never as a verdict', () =
 test('provisional thresholds are tagged wherever they decide an outcome', () => {
   const report = validateBlueprint(fresh());
   const provisionalIds = report.results
-    .filter((r) => r.calibration === 'provisional')
+    .filter((r) => r.confidence === 'provisional')
     .map((r) => r.id)
     .sort();
 
@@ -715,7 +753,7 @@ test('provisional thresholds are tagged wherever they decide an outcome', () => 
   ]);
 
   // Structural checks make no aesthetic claim, so they carry no tag.
-  const structural = report.results.filter((r) => r.calibration === 'structural').map((r) => r.id).sort();
+  const structural = report.results.filter((r) => r.confidence === 'structural').map((r) => r.id).sort();
   assert.deepEqual(structural, [
     'explanations_present',
     'gravity_matches_intent',

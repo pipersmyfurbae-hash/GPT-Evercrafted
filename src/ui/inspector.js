@@ -327,7 +327,7 @@ export function createInspector({
 
     const computed = h('section', { class: 'panel-block' },
       h('h3', { class: 'block-title' }, 'Measured',
-        h('span', { class: 'calibration-tag', title: 'These are engineering models, not calibrated measures. EC-GEO-001 owns the calibrated replacements.', text: 'provisional' })),
+        h('span', { class: 'authority-tag is-provisional', title: 'These are engineering models, not calibrated measures of what an eye perceives. EC-GEO-001 / EC-CAL own the calibrated replacements.', text: 'provisional' })),
       h('p', { class: 'field-hint measured-note', text: 'Measurements taken from the geometry. They describe what is drawn; they do not judge it.' }),
       h('dl', { class: 'fact-grid fact-grid-wide' },
         fact('Mass sits', readGravityDirection(gravity)),

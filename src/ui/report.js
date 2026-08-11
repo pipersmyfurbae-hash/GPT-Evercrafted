@@ -28,6 +28,9 @@ export function createReportPanel({ mount, getState, onSelect }) {
           : null,
         report.counts.metrics
           ? h('span', { class: 'metric-count', text: ` · ${report.counts.metrics} measured` })
+          : null,
+        report.counts.provisional
+          ? h('span', { class: 'provisional-count', text: ` · ${report.counts.provisional} provisional` })
           : null));
 
     replace(mount,
@@ -35,8 +38,8 @@ export function createReportPanel({ mount, getState, onSelect }) {
         h('h3', { class: 'panel-heading', text: 'Validation' }),
         summary),
       h('div', { class: 'report-columns' },
-        column('Blocking — ticket §8', report.errors, 'error', onSelect),
-        column('Advisory & measured — spec & canon', report.advisories, 'advisory', onSelect),
+        column('Blocking — ticket §8', report.blocking, 'blocking', onSelect),
+        column('Advisory & measured — spec & canon', [...report.advisory, ...report.metrics], 'advisory', onSelect),
         h('div', { class: 'report-column report-render' },
           h('h4', { class: 'report-column-title', text: 'Render preview' }),
           h('div', { class: 'render-slot' },
@@ -47,7 +50,7 @@ export function createReportPanel({ mount, getState, onSelect }) {
   return { render };
 }
 
-const MARKS = { pass: '✓', fail: '!', metric: '·' };
+const MARKS = { pass: '✓', fail: '!', measured: '·' };
 
 function column(title, results, level, onSelect) {
   const failures = results.filter((r) => r.status === 'fail');
@@ -62,11 +65,20 @@ function column(title, results, level, onSelect) {
         h('div', { class: 'result-head' },
           h('span', { class: `result-mark ${result.status}`, text: MARKS[result.status] ?? '·' }),
           h('span', { class: 'result-title', text: result.title }),
-          // An uncalibrated number must never read as a design law.
-          result.calibration === 'provisional'
+          // Enforcement and confidence are independent, so both are shown when
+          // either is not the default. A blocking check with a provisional basis
+          // is legitimate — the tooltip carries the reason it still blocks.
+          result.enforcement === 'metric'
             ? h('span', {
-                class: 'calibration-tag',
-                title: 'This rests on an uncalibrated threshold or model. It is reported, not established. EC-GEO-001 / EC-CAL own the calibrated predicate.',
+                class: 'authority-tag is-metric',
+                title: result.enforcement_reason,
+                text: 'measured',
+              })
+            : null,
+          result.confidence === 'provisional'
+            ? h('span', {
+                class: 'authority-tag is-provisional',
+                title: `${result.enforcement_reason} EC-GEO-001 / EC-CAL own the calibrated replacement.`,
                 text: 'provisional',
               })
             : null),

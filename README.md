@@ -11,7 +11,7 @@ define, edit, save, and reload the first Evercrafted placement skeleton.
 
 ```bash
 npm start          # serves at http://127.0.0.1:4173
-npm test           # 101 tests, zero dependencies
+npm test           # 104 tests, zero dependencies
 ```
 
 No build step, no dependencies. `npm start` runs a ~60-line static server from the Node standard
@@ -146,14 +146,27 @@ the ticket does. The clearest example: the ticket only compares the *echo* to th
 **sweep** that out-masses the anchor breaks EC-COMP-001 Law 1 while passing every ticketed
 validator. That is an advisory, not a silent pass.
 
-**Every result declares its own basis.** A `calibration` field marks each one `structural`
-(counting, containment, schema, geometric overlap — nothing to calibrate) or `provisional` (rests on
-an invented threshold, or on the uncalibrated visual-presence model). Provisional results are
-visibly tagged in the UI. A third status, `metric`, reports a measured number with *no verdict*,
-because no calibrated predicate exists for it — mass concentration is the current example.
+**Every result carries two independent axes**, because a check's authority and the trustworthiness
+of its basis are different questions:
 
-Every uncalibrated number lives in `PROVISIONAL_THRESHOLDS`. When EC-GEO-001 / EC-CAL supply
-calibrated predicates, those constants get deleted, not tuned.
+| Axis | Values |
+|---|---|
+| `enforcement` — what a failure costs | `blocking` · `advisory` · `metric` |
+| `confidence` — how far the basis can be trusted | `structural` · `provisional` · `calibrated` |
+
+They vary independently, and that is the point. `echo_smaller_than_anchor` is **blocking +
+provisional**: it blocks because ticket §8 requires the comparison, *not* because `presenceOf()` has
+been shown to be perceptually correct. Every result also records an `enforcement_reason` saying why
+it holds the authority it holds — so "if it's provisional, why does it block?" is answered by the
+model, not by memory.
+
+`metric` results report a measured number with **no verdict**, because no calibrated predicate
+exists. Mass concentration is the current example. Nothing carries `calibrated` yet; the value
+exists so EC-GEO-001 / EC-CAL have somewhere to land.
+
+Every uncalibrated number lives in `PROVISIONAL_THRESHOLDS`, and `DEFAULT_PROVENANCE` in the schema
+marks which *defaults* are engineering choices rather than spec-given — `band_width_norm: 0.30`
+among them. Defaults may be provisional without becoming validators.
 
 ---
 

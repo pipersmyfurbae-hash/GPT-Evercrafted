@@ -327,7 +327,9 @@ export function sweepGeometry(obj, base) {
 export function geometryMetrics(bp) {
   const zones = restZones(bp);
   return {
-    calibration: 'provisional',
+    // Same vocabulary as the validators: these are engineering models, not
+    // calibrated measures. See CONFIDENCE in validate.js.
+    confidence: 'provisional',
     composition_gravity: compositionGravity(bp),
     rest: {
       zones,

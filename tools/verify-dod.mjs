@@ -214,7 +214,7 @@ try {
   console.log('\nValidation');
   const validation = await page.evaluate(() => ({
     verdict: document.querySelector('.verdict')?.textContent,
-    blocking: document.querySelectorAll('.report-error .result').length,
+    blocking: document.querySelectorAll('.report-blocking .result').length,
     advisory: document.querySelectorAll('.report-advisory .result').length,
   }));
   check('ticket §8 runs exactly five blocking validators', validation.blocking === 5);
@@ -222,22 +222,32 @@ try {
   check('the saved composition is valid', validation.verdict === 'Valid', validation.verdict);
 
   // C-07 (REVISED): uncalibrated numbers must never read as design law.
-  const calibration = await page.evaluate(() => {
+  const authority = await page.evaluate(() => {
     const concentration = [...document.querySelectorAll('.report-advisory .result')]
       .find((n) => n.querySelector('.result-title')?.textContent === 'Mass concentration');
+    const echoRow = [...document.querySelectorAll('.report-blocking .result')]
+      .find((n) => n.querySelector('.result-title')?.textContent?.includes('Echo'));
     return {
-      tags: document.querySelectorAll('.report-columns .calibration-tag').length,
-      metrics: document.querySelectorAll('.report-advisory .result-metric').length,
+      provisionalTags: document.querySelectorAll('.report-columns .authority-tag.is-provisional').length,
+      measuredTags: document.querySelectorAll('.report-columns .authority-tag.is-metric').length,
       concentrationDetail: concentration?.querySelector('.result-detail')?.textContent ?? '',
-      concentrationIsMetric: Boolean(concentration?.classList.contains('result-metric')),
+      concentrationIsMeasured: Boolean(concentration?.classList.contains('result-measured')),
+      echoIsBlockingAndProvisional: Boolean(echoRow?.querySelector('.authority-tag.is-provisional')),
+      echoReason: echoRow?.querySelector('.authority-tag.is-provisional')?.getAttribute('title') ?? '',
     };
   });
-  check('provisional results are visibly tagged', calibration.tags >= 6, `${calibration.tags} tagged`);
+  check('provisional results are visibly tagged', authority.provisionalTags >= 6,
+    `${authority.provisionalTags} tagged`);
   check('mass concentration is reported as a measurement, not a verdict',
-    calibration.concentrationIsMetric && calibration.metrics >= 1);
+    authority.concentrationIsMeasured && authority.measuredTags >= 1);
   check('the engine no longer claims a composition is "resolved"',
-    !/\bresolved\b/i.test(calibration.concentrationDetail),
-    calibration.concentrationDetail.slice(0, 90) + '…');
+    !/\bresolved\b/i.test(authority.concentrationDetail),
+    authority.concentrationDetail.slice(0, 80) + '…');
+
+  // The two axes are independent, and the UI explains the combination.
+  check('a blocking check can carry a provisional basis, and says why',
+    authority.echoIsBlockingAndProvisional && /ticket §8/.test(authority.echoReason),
+    authority.echoReason.slice(0, 100) + '…');
 
   console.log(`\nJS errors: ${jsErrors.length}`);
   jsErrors.forEach((error) => console.log(`  ! ${error}`));

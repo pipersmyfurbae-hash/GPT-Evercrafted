@@ -93,6 +93,49 @@ export const LIFECYCLE_STAGES_SPRINT1 = [
  * Defaults — the canonical 24-inch test composition
  * ------------------------------------------------------------------ */
 
+/**
+ * Where each default number came from.
+ *
+ * A default is allowed to be provisional without becoming a validator — these
+ * are starting values a designer immediately edits, not rules anything is
+ * measured against. But they should not be mistaken for canon, so their
+ * provenance is recorded rather than assumed.
+ *
+ *   spec        — given by the Placement Engine Spec or the Sprint 1 ticket.
+ *   engineering — chosen to make the sprint's test composition read well. Not
+ *                 empirically earned. Ruled acceptable as a default, and
+ *                 explicitly NOT a calibrated canon value.
+ *
+ * `band_width_norm: 0.30` is the clearest case: the *geometry* it expresses is
+ * now correct (radial thickness, CONFLICTS.md C-04), but the number 0.30 itself
+ * has not been earned. EC-GEO-001 / EC-CAL may supply a calibrated starting
+ * value later; nothing validates against it in the meantime.
+ */
+export const DEFAULT_PROVENANCE = Object.freeze({
+  'base.diameter_in': 'spec',
+  'anchor.start_deg': 'spec', // 7 o'clock
+  'anchor.arc_deg': 'spec', // through to 9 o'clock
+  'echo.offset_deg': 'spec', // places the echo near 5 o'clock
+  'sweep.behavior_type': 'spec', // GRN-B02 sweeping
+
+  'base.ring_width_in': 'engineering',
+  'base.depth_in': 'engineering',
+  'anchor.depth_ratio': 'engineering',
+  'anchor.visual_weight': 'engineering',
+  'clearance.arc_deg': 'engineering',
+  'clearance.radial_position': 'engineering',
+  'clearance.radial_extent': 'engineering',
+  'sweep.arc_deg': 'engineering',
+  'sweep.band_width_norm': 'engineering',
+  'sweep.curvature': 'engineering',
+  'sweep.taper': 'engineering',
+  'sweep.strength': 'engineering',
+  'sweep.radial_position': 'engineering',
+  'echo.arc_deg': 'engineering',
+  'echo.depth_ratio': 'engineering',
+  'echo.visual_weight': 'engineering',
+});
+
 export const DEFAULTS = Object.freeze({
   base: {
     shape: 'circle',
@@ -118,7 +161,10 @@ export const DEFAULTS = Object.freeze({
     // up over 12 to roughly 1:30. See CONFLICTS.md C-05.
     offset_deg: 0,
     arc_deg: 135, // how far it travels AROUND the form
-    band_width_norm: 0.3, // how thick it is ACROSS the ring; see CONFLICTS.md C-04
+    // How thick it is ACROSS the ring (CONFLICTS.md C-04). The geometry is
+    // correct; the number is an engineering default, not calibrated canon.
+    // See DEFAULT_PROVENANCE above.
+    band_width_norm: 0.3,
     curvature: 0.25,
     taper: 0.45,
     strength: 0.6,
@@ -357,7 +403,7 @@ export const PROPERTY_SPECS = {
     { key: 'behavior_type', label: 'Behaviour', kind: 'select', options: BEHAVIOR_TYPES, hint: 'EC-GRN-001 behaviour library. Behaviour is selected before species.' },
     { key: 'link.offset_deg', label: 'Offset from anchor edge', kind: 'deg', min: -60, max: 60, step: 1 },
     { key: 'arc_deg', label: 'Travel', kind: 'deg', min: 10, max: 330, step: 1, hint: 'Clockwise travel from the start of the path.' },
-    { key: 'band_width_norm', label: 'Band width', kind: 'band_width', min: 0.04, max: 1, step: 0.01, hint: 'Radial thickness ACROSS the ring, as a fraction of the base band width. Travel around the form is set by Travel above.' },
+    { key: 'band_width_norm', label: 'Band width', kind: 'band_width', min: 0.04, max: 1, step: 0.01, hint: 'Radial thickness ACROSS the ring, as a fraction of the base band width. Travel around the form is set by Travel above. The 0.30 default is a starting value, not a calibrated one.' },
     { key: 'curvature', label: 'Curvature', kind: 'number', min: -1, max: 1, step: 0.05, hint: 'Radial bow at the midpoint. Positive lifts the path outward.' },
     { key: 'taper', label: 'Taper', ...RATIO, hint: 'How much the band narrows along its travel. GRN-B02 wants a gesture, not a hedge.' },
     { key: 'strength', label: 'Strength', ...RATIO, hint: 'Visual assertiveness of the gesture.' },

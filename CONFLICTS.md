@@ -298,8 +298,28 @@ uncalibrated engineering model, not a measure of perceived visual weight. Every 
 it inherits `provisional`, including the ticket-required `echo_smaller_than_anchor`, which still
 blocks because the ticket requires it but is tagged so its basis is visible.
 
-**Where it lives.** `src/core/validate.js` → `PROVISIONAL_THRESHOLDS`,
-`UNIFORM_HALF_ANNULUS_CONCENTRATION`, and the `calibration` field on every result.
+### Refinement, ruled 2026-08-11 — two independent axes
+
+A result has **two kinds of authority**, and collapsing them into one field made a legitimate
+combination look like a contradiction.
+
+| Axis | Field | Values |
+| --- | --- | --- |
+| **Enforcement authority** — what a failure costs | `enforcement` | `blocking` · `advisory` · `metric` |
+| **Measurement confidence** — how far the basis can be trusted | `confidence` | `structural` · `provisional` · `calibrated` |
+
+They vary independently. `echo_smaller_than_anchor` is legitimately **blocking + provisional**: it
+blocks because the Sprint 1 contract explicitly requires the comparison, *not* because
+`presenceOf()` has been shown to be perceptually correct.
+
+Every result therefore also carries **`enforcement_reason`** — a sentence saying why it holds the
+authority it holds. So the question "if it is provisional, why does it block?" is answered by the
+model rather than by whoever remembers the conversation. Nothing carries `calibrated` yet; that
+value exists so EC-GEO-001 / EC-CAL have somewhere to land.
+
+**Where it lives.** `src/core/validate.js` → `ENFORCEMENT`, `CONFIDENCE`,
+`PROVISIONAL_THRESHOLDS`, `UNIFORM_HALF_ANNULUS_CONCENTRATION`, and the `enforcement`,
+`confidence` and `enforcement_reason` fields on every result.
 
 
 ---
@@ -410,10 +430,39 @@ Two consequences the engine now enforces:
 - The schema **rejects** a resurrected `composition_gravity` field, so the old shared-field shape
   cannot creep back in through a hand-edited file.
 
+## Defaults are allowed to be provisional
+
+Ruled 2026-08-11.
+
+A default is a starting value a designer immediately edits. It is not a rule anything is measured
+against, so it may be provisional without becoming a validator. But it must not be mistaken for
+canon, so `src/core/schema.js` records **`DEFAULT_PROVENANCE`**: which default numbers came from the
+spec, and which were engineering choices made to let the sprint's test composition read well.
+
+`band_width_norm: 0.30` is the clearest case. The *geometry* it now expresses is correct — radial
+thickness, per C-04. The number 0.30 itself has not been earned, and nothing validates against it.
+
 ## Forward work this register hands on
 
 - **C-06 caveat.** Negative space is derived read-only, which is right for Sprint 1. EC-GEO's
   protected/canonical **silence zones** must later become explicit constraint objects, not merely
   the complement of occupied arcs.
 - **C-07 caveat.** Every `PROVISIONAL_THRESHOLDS` entry is awaiting a calibrated predicate from
-  EC-GEO-001 / EC-CAL. They are placeholders with an expiry date, not settled values.
+  EC-GEO-001 / EC-CAL. They are placeholders with an expiry date, not settled values. When a
+  calibrated predicate arrives, the result's `confidence` moves to `calibrated` and the placeholder
+  constant is deleted rather than tuned.
+- **Provisional defaults.** `DEFAULT_PROVENANCE` marks which starting values are engineering
+  choices. EC-GEO/EC-CAL may supply calibrated starting values; until then they stay as defaults and
+  never become validators.
+
+## Sprint 1 status
+
+**ACCEPTED as the Sprint 1 baseline, 2026-08-11.** Schema 1.1.0 accepted. `band_width_norm` kept.
+`taper` kept. Intent/measurement separation is a canonical architectural principle. Provisional
+thresholds survive only as visibly provisional diagnostics. `presenceOf()` is a provisional
+measurement basis: permitted to support ticket-mandated blocking checks, not permitted to make
+perceptual truth claims.
+
+The next engineering work comes from **EC-GEO-001 / EC-CAL**, not from further invention inside
+Sprint 1 — so the canvas waits for measured rules rather than quietly growing a second canon inside
+its own source.

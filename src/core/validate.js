@@ -1,31 +1,55 @@
 /**
  * Validation.
  *
- * Two tiers of authority and three kinds of result. See CONFLICTS.md C-07.
+ * Every result carries TWO INDEPENDENT AXES. See CONFLICTS.md C-07.
  *
- * TIERS
- *   error    — exactly the five validators listed in Sprint 1 ticket §8.
- *              These and only these block.
- *   advisory — derived from the spec's Acceptance Criteria and the canon, which
- *              ask for more than the ticket does. Never blocks.
+ * ENFORCEMENT AUTHORITY — what happens when the check is not satisfied.
+ *   blocking  — the five validators named in Sprint 1 ticket §8. These and only
+ *               these prevent a save.
+ *   advisory  — derived from the spec's Acceptance Criteria and the canon, which
+ *               ask for more than the ticket does. Reported, never blocks.
+ *   metric    — enforces nothing. A number is measured and no verdict is issued.
  *
- * STATUS
- *   pass / fail — a predicate was evaluated and returned a verdict.
- *   metric      — a number was measured and NO verdict was reached, because no
- *                 calibrated predicate exists for it yet.
- *
- * CALIBRATION — the honesty field.
+ * MEASUREMENT CONFIDENCE — how much the basis of the check can be trusted.
  *   structural  — counting, containment, schema, geometric overlap. No aesthetic
  *                 judgement is being made, so there is nothing to calibrate.
- *   provisional — depends on an invented numeric threshold, or on the
- *                 uncalibrated visual-presence model. Reported, tagged, and
- *                 never presented as law.
+ *   provisional — rests on an invented numeric threshold, or on the uncalibrated
+ *                 visual-presence model. Tagged in the UI; never stated as law.
+ *   calibrated  — backed by EC-GEO-001 / EC-CAL. Nothing carries this yet.
+ *
+ * THE AXES ARE INDEPENDENT, and that is the point. `echo_smaller_than_anchor` is
+ * legitimately **blocking + provisional**: it blocks because the Sprint 1
+ * contract explicitly requires the comparison, NOT because `presenceOf()` has
+ * been shown to be perceptually correct. Every result therefore records an
+ * `enforcement_reason` saying why it has the authority it has, so the answer to
+ * "if it is provisional, why does it block?" lives in the model rather than in
+ * somebody's memory.
  *
  * A threshold is a calibration value, not an aesthetic guess. Nothing in
  * PROVISIONAL_THRESHOLDS has been calibrated against real designs, so no result
- * that depends on one may state a conclusion as fact. EC-GEO-001 / EC-CAL own
- * the calibrated predicates that will replace them.
+ * that depends on one may state a conclusion as fact.
  */
+
+/** Enforcement authority — what a failure costs. */
+export const ENFORCEMENT = {
+  BLOCKING: 'blocking',
+  ADVISORY: 'advisory',
+  METRIC: 'metric',
+};
+
+/** Measurement confidence — how far the basis can be trusted. */
+export const CONFIDENCE = {
+  STRUCTURAL: 'structural',
+  PROVISIONAL: 'provisional',
+  CALIBRATED: 'calibrated',
+};
+
+/** Stock reasons, so authority is always justified in the same vocabulary. */
+const REASON = {
+  TICKET: 'Sprint 1 build ticket §8 names this check explicitly, so it blocks regardless of how well calibrated its basis is.',
+  SPEC: 'Derived from the spec\'s Acceptance Criteria, which ask for more than the ticket lists. Reported so it is visible; never blocks a save the ticket said should succeed.',
+  NO_PREDICATE: 'No calibrated predicate exists for this measure, so the engine reports the number and issues no verdict.',
+};
 
 import {
   angleInRange,
@@ -65,7 +89,7 @@ import { describeSector, explainObject } from './explain.js';
  *
  * Every number below is an engineering placeholder chosen to get Sprint 1
  * moving. None has been calibrated against real designs, and none is canon.
- * Results that depend on them are tagged `calibration: 'provisional'` and the
+ * Results that depend on them are tagged `confidence: 'provisional'` and the
  * UI marks them, so a placeholder can never be mistaken for a design law.
  *
  * EC-GEO-001 / EC-CAL own the calibrated predicates that replace these. When
@@ -107,29 +131,41 @@ const round = (n, places = 1) => {
   return Number.isFinite(value) ? Number(value.toFixed(places)) : '?';
 };
 
-function result(id, level, status, title, detail, extras = {}) {
+function result(id, enforcement, status, title, detail, extras = {}) {
   return {
     id,
-    level,
+    enforcement,
     status,
     title,
     detail,
     canon: [],
     objects: [],
-    calibration: 'structural',
+    confidence: CONFIDENCE.STRUCTURAL,
+    enforcement_reason:
+      enforcement === ENFORCEMENT.BLOCKING ? REASON.TICKET
+        : enforcement === ENFORCEMENT.METRIC ? REASON.NO_PREDICATE
+          : REASON.SPEC,
     ...extras,
   };
 }
 
-const pass = (id, level, title, detail, extras) => result(id, level, 'pass', title, detail, extras);
-const fail = (id, level, title, detail, extras) => result(id, level, 'fail', title, detail, extras);
+const pass = (id, enforcement, title, detail, extras) =>
+  result(id, enforcement, 'pass', title, detail, extras);
+const fail = (id, enforcement, title, detail, extras) =>
+  result(id, enforcement, 'fail', title, detail, extras);
 
-/** A measured number with no verdict attached, because none has been earned. */
-const metric = (id, level, title, detail, extras) =>
-  result(id, level, 'metric', title, detail, { calibration: 'provisional', ...extras });
+/**
+ * A measured number with no verdict attached, because none has been earned.
+ * Enforces nothing, so its status is "measured" rather than pass or fail.
+ */
+const metric = (id, title, detail, extras) =>
+  result(id, ENFORCEMENT.METRIC, 'measured', title, detail, {
+    confidence: CONFIDENCE.PROVISIONAL,
+    ...extras,
+  });
 
 /** Marks a result as resting on an uncalibrated threshold or model. */
-const provisional = (extras = {}) => ({ ...extras, calibration: 'provisional' });
+const provisional = (extras = {}) => ({ ...extras, confidence: CONFIDENCE.PROVISIONAL });
 
 /* ================================================================== *
  * Blocking validators — Sprint 1 ticket §8
@@ -141,14 +177,14 @@ function singlePrimaryAnchor(bp) {
   const meta = { canon: ['SPEC.ANCHOR.ONE', 'COMP.L1'], objects: anchors.map((a) => a.id) };
 
   if (anchors.length === 1) {
-    return pass('single_primary_anchor', 'error', 'One primary anchor',
+    return pass('single_primary_anchor', ENFORCEMENT.BLOCKING, 'One primary anchor',
       'Exactly one primary anchor is present.', meta);
   }
   if (anchors.length === 0) {
-    return fail('single_primary_anchor', 'error', 'No primary anchor',
+    return fail('single_primary_anchor', ENFORCEMENT.BLOCKING, 'No primary anchor',
       'The composition has no primary anchor. EC-COMP-001 requires every design to establish a clear emotional anchor.', meta);
   }
-  return fail('single_primary_anchor', 'error', 'Multiple primary anchors',
+  return fail('single_primary_anchor', ENFORCEMENT.BLOCKING, 'Multiple primary anchors',
     `${anchors.length} primary anchors are present. The spec allows exactly one unless a later canon defines a multi-anchor formula — which Sprint 1 explicitly does not build.`, meta);
 }
 
@@ -156,15 +192,19 @@ function singlePrimaryAnchor(bp) {
 function echoSmallerThanAnchor(bp) {
   const anchor = getAnchor(bp);
   const echo = getEcho(bp);
-  // Ticket-required, so it blocks — but the comparison rides on the
-  // uncalibrated presence model, so it is tagged accordingly.
+  // The canonical blocking + provisional case. It blocks because ticket §8
+  // names it; its basis is provisional because presenceOf() is an engineering
+  // model, not a demonstrated measure of perceived weight. Both facts are
+  // recorded so neither has to be remembered.
   const meta = provisional({
     canon: ['SPEC.ECHO', 'SPEC.DOMINANT'],
     objects: [echo?.id, anchor?.id].filter(Boolean),
+    enforcement_reason:
+      'Blocks because Sprint 1 ticket §8 requires the echo/anchor comparison. Its basis is provisional: presenceOf() is an uncalibrated model of visual weight, not a perceptual truth claim. Blocking authority comes from the sprint contract, not from the model being proven.',
   });
 
   if (!anchor || !echo) {
-    return pass('echo_smaller_than_anchor', 'error', 'Echo vs anchor',
+    return pass('echo_smaller_than_anchor', ENFORCEMENT.BLOCKING, 'Echo vs anchor',
       'No anchor/echo pair to compare.', meta);
   }
 
@@ -178,11 +218,11 @@ function echoSmallerThanAnchor(bp) {
       : '';
 
   if (echoPresence < anchorPresence) {
-    return pass('echo_smaller_than_anchor', 'error', 'Echo lighter than anchor',
+    return pass('echo_smaller_than_anchor', ENFORCEMENT.BLOCKING, 'Echo lighter than anchor',
       `Echo presence ${round(echoPresence)} against anchor ${round(anchorPresence)} — ${round(ratio * 100, 0)}% of the anchor.${sizeNote}`, meta);
   }
 
-  return fail('echo_smaller_than_anchor', 'error', 'Echo is not smaller than the anchor',
+  return fail('echo_smaller_than_anchor', ENFORCEMENT.BLOCKING, 'Echo is not smaller than the anchor',
     `Echo presence ${round(echoPresence)} meets or exceeds the anchor's ${round(anchorPresence)}. The spec requires the echo to be visibly lighter and smaller — an echo, not a second focal point.${sizeNote}`, meta);
 }
 
@@ -203,7 +243,7 @@ function hardwareClearanceUnobstructed(bp) {
   const meta = { canon: ['SPEC.HARDWARE'], objects: clearance ? [clearance.id] : [] };
 
   if (!clearance) {
-    return pass('hardware_clearance_unobstructed', 'error', 'Hardware clearance',
+    return pass('hardware_clearance_unobstructed', ENFORCEMENT.BLOCKING, 'Hardware clearance',
       'No hardware clearance is reserved in this blueprint.', meta);
   }
 
@@ -254,11 +294,11 @@ function hardwareClearanceUnobstructed(bp) {
   }
 
   if (!intruders.length) {
-    return pass('hardware_clearance_unobstructed', 'error', 'Hardware clearance is clear',
+    return pass('hardware_clearance_unobstructed', ENFORCEMENT.BLOCKING, 'Hardware clearance is clear',
       `The ${round(clearRange.span)}° reserved for ${clearance.purpose ?? 'hardware'} is not intruded on by any other object.`, meta);
   }
 
-  return fail('hardware_clearance_unobstructed', 'error', 'Hardware clearance is obstructed',
+  return fail('hardware_clearance_unobstructed', ENFORCEMENT.BLOCKING, 'Hardware clearance is obstructed',
     intruders.map(({ obj, detail }) => `${obj.label}: ${detail}.`).join(' '),
     { ...meta, objects: [clearance.id, ...intruders.map((i) => i.obj.id)] });
 }
@@ -280,11 +320,11 @@ function explanationsPresent(bp) {
   }
 
   if (!missing.length) {
-    return pass('explanations_present', 'error', 'Every object explains itself',
+    return pass('explanations_present', ENFORCEMENT.BLOCKING, 'Every object explains itself',
       `All ${bp.objects.length} objects answer what they are, the role they serve, why they are there, and which canon rule supports them.`, meta);
   }
 
-  return fail('explanations_present', 'error', 'Objects without an explanation',
+  return fail('explanations_present', ENFORCEMENT.BLOCKING, 'Objects without an explanation',
     `${missing.map((o) => o.label ?? o.id).join(', ')} cannot produce a complete explanation. EC-DOS-001 requires every design decision to be explainable.`,
     { ...meta, objects: missing.map((o) => o.id) });
 }
@@ -294,10 +334,10 @@ function schemaValid(bp) {
   const meta = { canon: ['SPEC.PERSIST'], objects: [] };
   const { ok, errors } = validateSchema(bp);
   if (ok) {
-    return pass('schema_valid', 'error', 'Schema is valid',
+    return pass('schema_valid', ENFORCEMENT.BLOCKING, 'Schema is valid',
       `Blueprint conforms to schema ${bp.schema_version}.`, meta);
   }
-  return fail('schema_valid', 'error', 'Schema is invalid', errors.join(' '), meta);
+  return fail('schema_valid', ENFORCEMENT.BLOCKING, 'Schema is invalid', errors.join(' '), meta);
 }
 
 /* ================================================================== *
@@ -309,7 +349,7 @@ function anchorDominant(bp) {
   const anchor = getAnchor(bp);
   const meta = provisional({ canon: ['SPEC.DOMINANT', 'COMP.L1'], objects: anchor ? [anchor.id] : [] });
   if (!anchor) {
-    return pass('anchor_dominant', 'advisory', 'Anchor dominance', 'No anchor to assess.', meta);
+    return pass('anchor_dominant', ENFORCEMENT.ADVISORY, 'Anchor dominance', 'No anchor to assess.', meta);
   }
 
   const anchorPresence = presenceOf(anchor);
@@ -323,11 +363,11 @@ function anchorDominant(bp) {
       .filter((o) => o.id !== anchor.id && o.kind !== 'clearance')
       .map((o) => presenceOf(o))
       .sort((a, b) => b - a)[0] ?? 0;
-    return pass('anchor_dominant', 'advisory', 'Anchor is dominant',
+    return pass('anchor_dominant', ENFORCEMENT.ADVISORY, 'Anchor is dominant',
       `Anchor presence ${round(anchorPresence)} leads the next heaviest element at ${round(next)}.`, meta);
   }
 
-  return fail('anchor_dominant', 'advisory', 'Anchor is not the dominant mass',
+  return fail('anchor_dominant', ENFORCEMENT.ADVISORY, 'Anchor is not the dominant mass',
     `${rivals.map((r) => `${r.obj.label} carries ${round(r.presence)}`).join('; ')}, against the anchor's ${round(anchorPresence)}. The ticket's own validators only compare the echo, so this would otherwise pass unnoticed.`,
     { ...meta, objects: [anchor.id, ...rivals.map((r) => r.obj.id)] });
 }
@@ -338,17 +378,17 @@ function echoNotRivalling(bp) {
   const echo = getEcho(bp);
   const meta = provisional({ canon: ['SPEC.ECHO', 'SPEC.DOMINANT'], objects: [echo?.id].filter(Boolean) });
   if (!anchor || !echo) {
-    return pass('echo_not_rivalling', 'advisory', 'Echo weight', 'No anchor/echo pair to compare.', meta);
+    return pass('echo_not_rivalling', ENFORCEMENT.ADVISORY, 'Echo weight', 'No anchor/echo pair to compare.', meta);
   }
 
   const ratio = presenceOf(echo) / (presenceOf(anchor) || 1);
   const limit = PROVISIONAL_THRESHOLDS.echoParityRatio;
 
   if (ratio <= limit) {
-    return pass('echo_not_rivalling', 'advisory', 'Echo is well below the anchor',
+    return pass('echo_not_rivalling', ENFORCEMENT.ADVISORY, 'Echo is well below the anchor',
       `Echo carries ${round(ratio * 100, 0)}% of the anchor's presence, under the provisional ${round(limit * 100, 0)}% mark.`, meta);
   }
-  return fail('echo_not_rivalling', 'advisory', 'Echo is approaching the anchor',
+  return fail('echo_not_rivalling', ENFORCEMENT.ADVISORY, 'Echo is approaching the anchor',
     `Echo carries ${round(ratio * 100, 0)}% of the anchor's presence, over the provisional ${round(limit * 100, 0)}% mark. That figure is an engineering placeholder, not a calibrated point at which an echo stops reading as an echo.`, meta);
 }
 
@@ -368,7 +408,7 @@ function balanceConcentration(bp) {
   const gravity = compositionGravity(bp);
   const where = gravity.concentration < 0.12 ? 'the centre' : describeSector(gravity.deg);
 
-  return metric('balance_concentration', 'advisory', 'Mass concentration',
+  return metric('balance_concentration', 'Mass concentration',
     `${round(gravity.concentration, 2)} toward ${where}, on a scale where 0 is weight spread evenly around the form and 1 is all weight at a single point. For reference, a uniform half-annulus measures ${round(UNIFORM_HALF_ANNULUS_CONCENTRATION, 2)} — a shape comparison, not a pass mark. No calibrated threshold has been established for this measure.`,
     { canon: ['SPEC.BALANCE', 'COMP.BALANCE', 'COMP.GRAVITY'], objects: [] });
 }
@@ -381,10 +421,10 @@ function restZonesPresent(bp) {
   const meta = provisional({ canon: ['COMP.L4', 'COMP.L5', 'COMP.L12', 'SPEC.NEGSPACE'], objects: [] });
 
   if (meaningful.length && total >= PROVISIONAL_THRESHOLDS.minRestTotalDegrees) {
-    return pass('rest_zones_present', 'advisory', 'The composition breathes',
+    return pass('rest_zones_present', ENFORCEMENT.ADVISORY, 'The composition breathes',
       `${round(total)}° of the form is left unworked across ${zones.length} rest ${zones.length === 1 ? 'zone' : 'zones'}, the largest ${round(Math.max(...zones.map((z) => z.span)))}°.`, meta);
   }
-  return fail('rest_zones_present', 'advisory', 'Little rest left',
+  return fail('rest_zones_present', ENFORCEMENT.ADVISORY, 'Little rest left',
     `Only ${round(total)}° of the form is left unworked${meaningful.length ? '' : `, with no single gap reaching the provisional ${PROVISIONAL_THRESHOLDS.minRestDegrees}° minimum`}. EC-COMP-001 treats negative space as an active design element, and a design is not complete merely because every area is filled. The degree figures are placeholders, not calibrated minimums.`, meta);
 }
 
@@ -393,7 +433,7 @@ function sweepIsGesture(bp) {
   const sweep = getSweep(bp);
   const meta = provisional({ canon: ['GRN.B02', 'GRN.L7', 'SPEC.SWEEP'], objects: sweep ? [sweep.id] : [] });
   if (!sweep) {
-    return pass('sweep_is_gesture', 'advisory', 'Sweep width', 'No behaviour path to assess.', meta);
+    return pass('sweep_is_gesture', ENFORCEMENT.ADVISORY, 'Sweep width', 'No behaviour path to assess.', meta);
   }
 
   const fraction = clamp01(sweep.band_width_norm ?? 0);
@@ -401,10 +441,10 @@ function sweepIsGesture(bp) {
   const limit = PROVISIONAL_THRESHOLDS.maxSweepBandNorm;
 
   if (fraction <= limit) {
-    return pass('sweep_is_gesture', 'advisory', 'Sweep reads as a gesture',
+    return pass('sweep_is_gesture', ENFORCEMENT.ADVISORY, 'Sweep reads as a gesture',
       `Band is ${round(inches, 2)} in across the ring, ${round(fraction * 100, 0)}% of its width.`, meta);
   }
-  return fail('sweep_is_gesture', 'advisory', 'Sweep is thickening into a band',
+  return fail('sweep_is_gesture', ENFORCEMENT.ADVISORY, 'Sweep is thickening into a band',
     `Band is ${round(inches, 2)} in across the ring, ${round(fraction * 100, 0)}% of its width — over the provisional ${round(limit * 100, 0)}% mark, past which GRN-B02's "gesture, never a hedge" is at risk. The mark itself is a placeholder.`, meta);
 }
 
@@ -414,24 +454,24 @@ function clearanceWithinAnchor(bp) {
   const clearance = getClearance(bp);
   const meta = provisional({ canon: ['SPEC.HARDWARE', 'SPEC.ANCHOR'], objects: [clearance?.id].filter(Boolean) });
   if (!anchor || !clearance) {
-    return pass('clearance_within_anchor', 'advisory', 'Clearance placement', 'No anchor/clearance pair to assess.', meta);
+    return pass('clearance_within_anchor', ENFORCEMENT.ADVISORY, 'Clearance placement', 'No anchor/clearance pair to assess.', meta);
   }
 
   const anchorRange = objectRange(anchor);
   const clearRange = objectRange(clearance);
 
   if (!rangeContains(anchorRange, clearRange)) {
-    return fail('clearance_within_anchor', 'advisory', 'Clearance has left the anchor zone',
+    return fail('clearance_within_anchor', ENFORCEMENT.ADVISORY, 'Clearance has left the anchor zone',
       `The clearance at ${round(objectCenter(clearance))}° is no longer fully inside the ${round(anchorRange.span)}° anchor arc. The wireframe places bow/ribbon clearance within the anchor zone so hardware and focal mass read as one gesture.`, meta);
   }
 
   const remainingRatio = (anchorRange.span - clearRange.span) / anchorRange.span;
   if (remainingRatio < PROVISIONAL_THRESHOLDS.minAnchorMassRatio) {
-    return fail('clearance_within_anchor', 'advisory', 'Clearance has hollowed out the anchor',
+    return fail('clearance_within_anchor', ENFORCEMENT.ADVISORY, 'Clearance has hollowed out the anchor',
       `Only ${round(remainingRatio * 100, 0)}% of the anchor arc still carries mass. The anchor stops reading as one dominant mass and starts reading as two small clusters.`, meta);
   }
 
-  return pass('clearance_within_anchor', 'advisory', 'Clearance sits within the anchor',
+  return pass('clearance_within_anchor', ENFORCEMENT.ADVISORY, 'Clearance sits within the anchor',
     `${round(clearRange.span)}° reserved inside the ${round(anchorRange.span)}° anchor, leaving ${round(remainingRatio * 100, 0)}% of the arc as mass.`, meta);
 }
 
@@ -452,16 +492,16 @@ function gravityMatchesIntent(bp) {
   const meta = { canon: ['COMP.GRAVITY'], objects: [] };
 
   if (!declared) {
-    return pass('gravity_matches_intent', 'advisory', 'Composition gravity',
+    return pass('gravity_matches_intent', ENFORCEMENT.ADVISORY, 'Composition gravity',
       `Weight reads ${observed}, toward ${where}. No intent declared.`, meta);
   }
 
   if (gravityContradiction(declared, observed)) {
-    return fail('gravity_matches_intent', 'advisory', 'Gravity contradicts declared intent',
+    return fail('gravity_matches_intent', ENFORCEMENT.ADVISORY, 'Gravity contradicts declared intent',
       `Declared "${declared}", but the placed weight reads ${observed}, toward ${where}. Neither is authoritative in Sprint 1 — see CONFLICTS.md C-01 — so this is reported, not enforced.`, meta);
   }
 
-  return pass('gravity_matches_intent', 'advisory', 'Composition gravity',
+  return pass('gravity_matches_intent', ENFORCEMENT.ADVISORY, 'Composition gravity',
     `Declared "${declared}"; the placed weight reads ${observed}, toward ${where}.`, meta);
 }
 
@@ -469,7 +509,7 @@ function gravityMatchesIntent(bp) {
  * Runner
  * ================================================================== */
 
-const ERROR_VALIDATORS = [
+const BLOCKING_VALIDATORS = [
   singlePrimaryAnchor,
   echoSmallerThanAnchor,
   hardwareClearanceUnobstructed,
@@ -494,39 +534,45 @@ const ADVISORY_VALIDATORS = [
  * user most needs to see — losing every other result to one exception would hide
  * the schema error that explains the crash.
  */
-function runValidator(fn, bp, level) {
+function runValidator(fn, bp, enforcement) {
   try {
     return fn(bp);
   } catch (error) {
-    return fail(fn.name || 'validator', level, 'Validator could not run',
+    return fail(fn.name || 'validator', enforcement, 'Validator could not run',
       `This check threw while inspecting the blueprint: ${error.message}. That usually means a malformed field — see the schema result.`,
       { canon: ['DOS.P1'], objects: [] });
   }
 }
 
 /**
- * Run every validator. `ok` reflects blocking errors only — advisories never
- * prevent a save.
+ * Run every validator.
+ *
+ * `ok` reflects blocking failures only. Advisories and metrics never prevent a
+ * save, and metrics never claim an outcome at all.
  */
 export function validateBlueprint(bp) {
-  const errors = ERROR_VALIDATORS.map((fn) => runValidator(fn, bp, 'error'));
-  const advisories = ADVISORY_VALIDATORS.map((fn) => runValidator(fn, bp, 'advisory'));
-  const failedErrors = errors.filter((r) => r.status === 'fail');
-  const failedAdvisories = advisories.filter((r) => r.status === 'fail');
+  const blockingResults = BLOCKING_VALIDATORS.map((fn) => runValidator(fn, bp, ENFORCEMENT.BLOCKING));
+  const advisoryResults = ADVISORY_VALIDATORS.map((fn) => runValidator(fn, bp, ENFORCEMENT.ADVISORY));
+  const all = [...blockingResults, ...advisoryResults];
 
-  const all = [...errors, ...advisories];
+  // Metrics are authored inside the advisory list but enforce nothing, so they
+  // are split out here rather than counted as advisories that happened to pass.
+  const advisory = advisoryResults.filter((r) => r.enforcement === ENFORCEMENT.ADVISORY);
+  const metrics = advisoryResults.filter((r) => r.enforcement === ENFORCEMENT.METRIC);
+  const failedBlocking = blockingResults.filter((r) => r.status === 'fail');
+
   return {
-    ok: failedErrors.length === 0,
-    errors,
-    advisories,
+    ok: failedBlocking.length === 0,
+    blocking: blockingResults,
+    advisory,
+    metrics,
     results: all,
     counts: {
-      errors: failedErrors.length,
-      advisories: failedAdvisories.length,
+      blocking: failedBlocking.length,
+      advisories: advisory.filter((r) => r.status === 'fail').length,
       passed: all.filter((r) => r.status === 'pass').length,
-      // Measurements without a calibrated predicate. Not passes, not failures.
-      metrics: all.filter((r) => r.status === 'metric').length,
-      provisional: all.filter((r) => r.calibration === 'provisional').length,
+      metrics: metrics.length,
+      provisional: all.filter((r) => r.confidence === CONFIDENCE.PROVISIONAL).length,
     },
   };
 }
